@@ -429,8 +429,8 @@ router.get('/', requireAuth, requireRole('admin'), (req: Request, res: Response)
   query += ' ORDER BY a.fecha DESC, a.hora_inicio ASC';
 
   const stmt = db.prepare(query);
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-  const appointments = stmt.all.apply(stmt, params as unknown[]) as unknown[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const appointments = (stmt.all as (...args: any[]) => unknown[])(...params);
   res.json(appointments);
 });
 
@@ -513,8 +513,8 @@ router.get('/staff', requireAuth, requireRole('staff', 'admin'), (req: Request, 
     WHERE a.staff_id = ? ${dateFilter} AND a.estado != 'cancelado'
     ORDER BY a.fecha ASC, a.hora_inicio ASC
   `);
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
-  const appointments = staffStmt.all.apply(staffStmt, params as unknown[]) as unknown[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const appointments = (staffStmt.all as (...args: any[]) => unknown[])(...params);
 
   res.json(appointments);
 });
