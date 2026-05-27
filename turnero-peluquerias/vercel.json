@@ -20,6 +20,11 @@
       "dest": "server/src/index.ts"
     },
     {
+      "src": "/comenzar",
+      "dest": "/registro",
+      "status": 301
+    },
+    {
       "handle": "filesystem"
     },
     {

@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { createClerkClient } from '@clerk/express';
 import bcrypt from 'bcryptjs';
 import { supabaseAdmin } from '../lib/supabase';
-import { createOrder } from '../lib/tiendanube';
+import { createMPPreference } from '../lib/mercadopago';
 import { sendBienvenida } from '../lib/email';
 import db from '../db';
 
@@ -149,41 +149,23 @@ router.post('/', async (req: Request, res: Response) => {
 
     console.log(`[Registro] Nuevo registro pendiente. id=${registro.id} slug=${slug}`);
 
-    // Obtener credenciales de Tienda Nube (tienda de PLaiT)
-    const tnToken   = (db.prepare("SELECT value FROM shop_config WHERE key = 'tn_access_token'").get() as { value: string } | undefined)?.value;
-    const tnStoreId = (db.prepare("SELECT value FROM shop_config WHERE key = 'tn_store_id'").get() as { value: string } | undefined)?.value;
-
-    let checkoutUrl: string;
-
-    if (tnToken && tnStoreId) {
-      const price = Number(process.env.PLAIT_PRICE ?? 0);
-
-      const order = await createOrder(Number(tnStoreId), tnToken, {
-        productos: [{ nombre: 'PLaiT — Sistema de turnos para peluquerías', cantidad: 1, precio: price }],
-        cliente: { nombre: `${nombre} ${apellido}`, email: gmail },
-        nota: `registro_id:${registro.id}`,
-      });
-
-      // Guardar el ID de la orden TN en el registro
-      await supabaseAdmin
-        .from('registros_pendientes')
-        .update({ tiendanube_order_id: String(order.id) })
-        .eq('id', registro.id);
-
-      checkoutUrl = order.checkout_url;
-      console.log(`[Registro] Orden TN creada. order_id=${order.id} checkout=${checkoutUrl}`);
-    } else {
-      // Fallback: usar URL de checkout fija del .env con el registro_id como parámetro
-      const base = process.env.TIENDANUBE_CHECKOUT_URL;
-      if (!base) {
-        res.status(500).json({ error: 'Sistema de pagos no configurado. Contactá a soporte.' });
-        return;
-      }
-      checkoutUrl = `${base}?registro_id=${registro.id}`;
-      console.log(`[Registro] Usando checkout URL fija: ${checkoutUrl}`);
+    // ── Crear preferencia de pago en Mercado Pago ────────────────────────────
+    if (!process.env.MP_ACCESS_TOKEN) {
+      console.error('[Registro] MP_ACCESS_TOKEN no configurado');
+      res.status(500).json({ error: 'Sistema de pagos no configurado. Contactá a soporte.' });
+      return;
     }
 
-    res.json({ registroId: registro.id, checkoutUrl });
+    const { initPoint } = await createMPPreference({
+      registroId: registro.id,
+      nombre:     `${nombre} ${apellido}`,
+      gmail,
+      nombreNegocio: nombre_negocio,
+    });
+
+    console.log(`[Registro] Preferencia MP creada → ${initPoint}`);
+
+    res.json({ registroId: registro.id, checkoutUrl: initPoint });
   } catch (err) {
     console.error('[Registro] Error al procesar:', err);
     res.status(500).json({ error: 'Error interno al procesar el registro' });

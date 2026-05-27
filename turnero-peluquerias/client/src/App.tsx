@@ -6,6 +6,7 @@ import { Landing } from './pages/Landing';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 import { Registro } from './pages/Registro';
+import { PagoExitoso } from './pages/PagoExitoso';
 import { Booking } from './pages/Booking';
 import { MyAppointments } from './pages/MyAppointments';
 import { SlugPublic } from './pages/SlugPublic';
@@ -61,6 +62,9 @@ export default function App() {
 
       {/* Formulario de registro pre-pago (landing → checkout) */}
       <Route path="/registro" element={<Registro />} />
+
+      {/* Página de éxito/pendiente después del pago en Mercado Pago */}
+      <Route path="/pago-exitoso" element={<PagoExitoso />} />
 
       {/* Ruta de login oculta para administradores internos */}
       <Route path="/acceso-admin" element={<Login />} />

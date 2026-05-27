@@ -7,6 +7,7 @@ import {
   getOrder,
   verifyWebhookSignature,
 } from '../lib/tiendanube';
+import { getMPPayment } from '../lib/mercadopago';
 import { createBusinessAccount } from './registro';
 import db from '../db';
 
@@ -260,6 +261,70 @@ router.post('/webhook', (req: Request, res: Response) => {
   if (event.event === 'order/cancelled') {
     console.log(`[Payments] Orden cancelada: ${event.id}`);
   }
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// WEBHOOK MERCADO PAGO
+// ──────────────────────────────────────────────────────────────────────────────
+
+/**
+ * POST /api/payments/webhook-mp
+ * Recibe notificaciones de Mercado Pago (IPN / Webhooks).
+ *
+ * MP puede enviar dos formatos:
+ *   - Webhooks (nuevo): { type: "payment", action: "payment.updated", data: { id: "123" } }
+ *   - IPN (viejo):      GET/POST con query params ?topic=payment&id=123
+ *
+ * En ambos casos obtenemos el payment_id, consultamos la API de MP para
+ * verificar el estado real (no confiamos solo en el payload del webhook),
+ * y si está aprobado creamos la cuenta del negocio.
+ */
+router.post('/webhook-mp', (req: Request, res: Response) => {
+  // Responder 200 inmediatamente — MP reintenta si no recibe respuesta rápida
+  res.status(200).json({ received: true });
+
+  const body = req.body as {
+    type?:   string;
+    action?: string;
+    data?:   { id?: string | number };
+    id?:     string | number;
+  };
+
+  // Soporte para ambos formatos
+  const topic     = body.type ?? (req.query['topic'] as string | undefined);
+  const paymentId = body.data?.id ?? body.id ?? (req.query['id'] as string | undefined);
+
+  console.log(`[MP Webhook] topic=${topic} paymentId=${String(paymentId)}`);
+
+  if (topic !== 'payment' || !paymentId) {
+    console.log('[MP Webhook] Evento no es un pago o no tiene ID. Ignorando.');
+    return;
+  }
+
+  void (async () => {
+    try {
+      // Consultar el pago directamente a la API de MP para verificar su estado real
+      const payment = await getMPPayment(String(paymentId));
+
+      console.log(`[MP Webhook] Pago ${paymentId}: status=${payment.status} ref=${payment.external_reference}`);
+
+      if (payment.status !== 'approved') {
+        console.log(`[MP Webhook] Pago no aprobado (${payment.status}). Sin acción.`);
+        return;
+      }
+
+      const registroId = payment.external_reference;
+      if (!registroId) {
+        console.warn('[MP Webhook] Pago sin external_reference — no es suscripción PLaiT. Ignorando.');
+        return;
+      }
+
+      await createBusinessAccount(registroId);
+      console.log(`[MP Webhook] ✅ Cuenta activada para registro ${registroId}`);
+    } catch (err) {
+      console.error(`[MP Webhook] ❌ Error procesando pago ${String(paymentId)}:`, err);
+    }
+  })();
 });
 
 export default router;
