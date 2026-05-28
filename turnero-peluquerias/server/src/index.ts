@@ -31,7 +31,16 @@ app.use('/api/payments', paymentsRouter);
 app.use('/api/registro', registroRouter);
 
 app.get('/api/health', (_req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  res.json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    env: {
+      supabase_url: !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+      supabase_key: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      jwt_secret: !!process.env.JWT_SECRET,
+      clerk_key: !!process.env.CLERK_SECRET_KEY,
+    },
+  });
 });
 
 // ── Error handler ─────────────────────────────────────────────────────────────
