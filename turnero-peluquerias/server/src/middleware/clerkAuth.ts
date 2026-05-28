@@ -6,7 +6,9 @@ import { Request, Response, NextFunction } from 'express';
  * Agrega req.auth con userId, sessionId, etc. si hay sesión activa.
  * No bloquea requests sin sesión (usar clerkAuth para eso).
  */
-export const clerkInit = clerkMiddleware();
+export const clerkInit = process.env.CLERK_SECRET_KEY
+  ? clerkMiddleware()
+  : (_req: Request, _res: Response, next: NextFunction) => next();
 
 /**
  * Protege una ruta exigiendo sesión Clerk activa.
