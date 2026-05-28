@@ -2,7 +2,6 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 
-import { clerkInit } from './middleware/clerkAuth';
 import authRouter from './routes/auth';
 import staffRouter from './routes/staff';
 import servicesRouter from './routes/services';
@@ -17,9 +16,6 @@ const PORT = process.env.PORT ?? 3001;
 // ── Middlewares globales ──────────────────────────────────────────────────────
 app.use(cors({ origin: process.env.VERCEL_URL ?? 'http://localhost:5173', credentials: true }));
 app.use(express.json());
-
-// Clerk inicializa req.auth en cada request (no bloquea sin sesión)
-app.use(clerkInit);
 
 // ── Rutas ─────────────────────────────────────────────────────────────────────
 app.use('/api/auth', authRouter);
