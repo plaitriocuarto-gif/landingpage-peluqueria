@@ -10,7 +10,7 @@
       "use": "@vercel/static-build",
       "config": {
         "distDir": "client/dist",
-        "buildScript": "build:vercel"
+        "buildScript": "vercel-build"
       }
     }
   ],
