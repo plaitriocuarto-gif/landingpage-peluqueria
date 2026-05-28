@@ -1,5 +1,5 @@
 import React, { ReactNode } from 'react';
-import { Navbar } from './Navbar';
+import { Navbar, BookingNavbar } from './Navbar';
 import { Sidebar } from './Sidebar';
 import { ToastContainer } from '../ui/Toast';
 
@@ -29,6 +29,16 @@ export function AdminLayout({ children }: AdminLayoutProps) {
         <Navbar />
         <main className="flex-1 overflow-y-auto p-6">{children}</main>
       </div>
+      <ToastContainer />
+    </div>
+  );
+}
+
+export function BookingLayout({ children }: { children: ReactNode }) {
+  return (
+    <div className="min-h-screen bg-[#F7F6F3] text-[#111111]">
+      <BookingNavbar />
+      <main>{children}</main>
       <ToastContainer />
     </div>
   );

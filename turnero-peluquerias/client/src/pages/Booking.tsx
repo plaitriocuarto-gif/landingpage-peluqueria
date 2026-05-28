@@ -6,15 +6,11 @@ import { staffApi } from '../api/staff';
 import { appointmentsApi } from '../api/appointments';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
-import { ServiceCard } from '../components/ui/ServiceCard';
-import { Avatar } from '../components/ui/Avatar';
-import { Button } from '../components/ui/Button';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
-import { PublicLayout } from '../components/layout/Layout';
+import { BookingLayout } from '../components/layout/Layout';
 
-// Step 0 = datos de contacto (solo para invitados)
-// Step 1 = servicio, 2 = profesional + fecha, 3 = horario, 4 = confirmación invitado
-type Step = 0 | 1 | 2 | 3 | 4;
+// Steps: 1=Profesional 2=Servicio 3=Horario 4=Contacto(guest) 5=Confirmacion(guest)
+type Step = 1 | 2 | 3 | 4 | 5;
 
 const DAYS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
@@ -22,11 +18,11 @@ function formatDate(date: Date): string {
   return date.toISOString().split('T')[0];
 }
 
-function getNext14Days(): Date[] {
+function getNext30Days(): Date[] {
   const days: Date[] = [];
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  for (let i = 0; i < 14; i++) {
+  for (let i = 0; i < 30; i++) {
     const d = new Date(today);
     d.setDate(today.getDate() + i);
     days.push(d);
@@ -34,13 +30,103 @@ function getNext14Days(): Date[] {
   return days;
 }
 
+function getInitials(nombre: string): string {
+  return nombre
+    .split(' ')
+    .map((n) => n[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('')
+    .toUpperCase();
+}
+
+function formatLongDate(dateStr: string): string {
+  return new Date(dateStr + 'T12:00:00').toLocaleDateString('es-AR', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  });
+}
+
+// SVG icons ---------------------------------------------------------------
+
+function IconCheck({ size = 12, stroke = '#111111' }: { size?: number; stroke?: string }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 12 12" fill="none" aria-hidden="true">
+      <path d="M2 6L5 9L10 3" stroke={stroke} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function IconClock() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" aria-hidden="true">
+      <circle cx="6.5" cy="6.5" r="5" stroke="#787774" strokeWidth="1.2" />
+      <path d="M6.5 4V6.5L8 8" stroke="#787774" strokeWidth="1.2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// Stepper -----------------------------------------------------------------
+
+interface StepperProps {
+  labels: string[];
+  current: Step;
+}
+
+function Stepper({ labels, current }: StepperProps) {
+  return (
+    <div className="flex items-start justify-center w-full overflow-x-auto pb-1">
+      {labels.map((label, idx) => {
+        const n = (idx + 1) as Step;
+        const isCompleted = current > n;
+        const isActive = current === n;
+        return (
+          <React.Fragment key={label}>
+            <div className="flex flex-col items-center gap-1.5 flex-shrink-0 w-14 sm:w-20">
+              <div
+                className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium transition-all duration-300 ${
+                  isCompleted
+                    ? 'border border-[#EAEAEA] bg-white text-[#111111]'
+                    : isActive
+                    ? 'bg-[#111111] text-white'
+                    : 'border border-[#EAEAEA] bg-white text-[#787774]'
+                }`}
+              >
+                {isCompleted ? <IconCheck /> : n}
+              </div>
+              <span
+                className={`hidden sm:block text-center leading-tight text-[10px] ${
+                  isActive ? 'text-[#111111] font-medium' : 'text-[#787774]'
+                }`}
+              >
+                {label}
+              </span>
+            </div>
+            {idx < labels.length - 1 && (
+              <div
+                className={`flex-1 h-px mt-3.5 mx-1 transition-colors duration-300 ${
+                  current > n ? 'bg-[#111111]' : 'bg-[#EAEAEA]'
+                }`}
+              />
+            )}
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
+// Main component ----------------------------------------------------------
+
 export function Booking() {
   const { user } = useAuth();
   const isGuest = !user;
+  const { showToast } = useToast();
+  const navigate = useNavigate();
 
-  const [step, setStep] = useState<Step>(isGuest ? 0 : 1);
+  const [step, setStep] = useState<Step>(1);
 
-  // Guest contact info
   const [guestNombre, setGuestNombre] = useState('');
   const [guestTelefono, setGuestTelefono] = useState('');
 
@@ -53,9 +139,6 @@ export function Booking() {
   const [selectedSlot, setSelectedSlot] = useState<string>('');
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [booking, setBooking] = useState(false);
-
-  const { showToast } = useToast();
-  const navigate = useNavigate();
 
   useEffect(() => {
     void servicesApi.list().then(setServices);
@@ -88,7 +171,7 @@ export function Booking() {
           fecha: selectedDate,
           horaInicio: selectedSlot,
         });
-        setStep(4);
+        setStep(5);
       } else {
         await appointmentsApi.book({
           staffId: selectedStaff.id,
@@ -107,150 +190,156 @@ export function Booking() {
     }
   };
 
-  const days14 = getNext14Days();
+  const days30 = getNext30Days();
+  const todayStr = formatDate(new Date());
 
-  // Progress bar steps (visible steps 1-3 after contact)
-  const visibleStep = isGuest ? step : step; // 1, 2, 3
+  const stepLabels = isGuest
+    ? ['Profesional', 'Servicio', 'Horario', 'Contacto', 'Confirmación']
+    : ['Profesional', 'Servicio', 'Horario'];
+
+  const activeStaff = staff.filter((s) => s.activo);
+  const activeServices = services.filter((s) => s.activo);
+
+  // Shared heading style
+  const headingStyle: React.CSSProperties = {
+    fontFamily: 'var(--font-serif)',
+    letterSpacing: '-0.02em',
+    lineHeight: 1.1,
+  };
+
+  // Shared button styles
+  const btnPrimary =
+    'px-8 py-2.5 bg-[#111111] text-white text-sm font-medium rounded-md hover:bg-[#333333] active:scale-[0.98] transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2';
+  const btnSecondary =
+    'px-6 py-2.5 border border-[#EAEAEA] text-[#111111] text-sm font-medium rounded-md hover:bg-white transition-all duration-200';
+
+  // Summary rows for step 3 sidebar and step 5 card
+  const summaryRows = [
+    { label: 'Profesional', value: selectedStaff?.nombre },
+    { label: 'Servicio', value: selectedService?.nombre },
+    { label: 'Precio', value: selectedService ? `$${selectedService.precio.toLocaleString('es-AR')}` : undefined },
+    { label: 'Fecha', value: selectedDate ? formatLongDate(selectedDate) : undefined },
+    { label: 'Hora', value: selectedSlot || undefined },
+  ];
 
   return (
-    <PublicLayout>
-      <div className="max-w-2xl mx-auto px-4 py-8">
+    <BookingLayout>
+      <div className="max-w-4xl mx-auto px-4 py-10">
 
-        {/* Paso 4: confirmación para invitados */}
-        {step === 4 && (
-          <div className="text-center py-12 space-y-6">
-            <div className="text-6xl">✅</div>
-            <h2 className="text-2xl font-bold text-white">¡Turno reservado!</h2>
-            <p className="text-white/60 max-w-sm mx-auto">
-              Tu turno quedó confirmado, {guestNombre}. Te esperamos el{' '}
-              <strong className="text-white">
-                {new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-AR', {
-                  weekday: 'long',
-                  day: 'numeric',
-                  month: 'long',
-                })}
-              </strong>{' '}
-              a las <strong className="text-white">{selectedSlot}</strong> hs.
-            </p>
-            <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-sm text-left max-w-xs mx-auto space-y-2">
-              <div className="flex justify-between">
-                <span className="text-white/50">Servicio</span>
-                <span className="text-white font-medium">{selectedService?.nombre}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-white/50">Profesional</span>
-                <span className="text-white font-medium">{selectedStaff?.nombre}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-white/50">Precio</span>
-                <span className="text-white font-bold">
-                  ${selectedService?.precio.toLocaleString('es-AR')}
-                </span>
-              </div>
+        {/* ── Step 5: Confirmación ────────────────────────────────────────── */}
+        {step === 5 && (
+          <div className="step-entry flex flex-col items-center py-16 space-y-8">
+            <div className="w-14 h-14 rounded-full border border-[#EAEAEA] bg-white flex items-center justify-center">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M4 12L9.5 17.5L20 7" stroke="#111111" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
             </div>
-            <button
-              onClick={() => navigate('/')}
-              className="mt-4 px-8 py-3 bg-white text-[#0D215B] font-bold rounded-xl
-                hover:bg-white/90 transition-all duration-200"
-            >
-              Volver al inicio
-            </button>
+
+            <div className="text-center">
+              <h1 style={headingStyle} className="text-4xl text-[#111111] mb-2">
+                Turno reservado
+              </h1>
+              <p className="text-[#787774] text-sm">
+                Te esperamos, {guestNombre}.
+              </p>
+            </div>
+
+            <div className="w-full max-w-sm border border-[#EAEAEA] rounded-xl bg-white overflow-hidden">
+              {summaryRows.map((row, i) => (
+                <div
+                  key={row.label}
+                  className={`flex justify-between items-center px-5 py-3.5 ${
+                    i < summaryRows.length - 1 ? 'border-b border-[#EAEAEA]' : ''
+                  }`}
+                >
+                  <span className="text-sm text-[#787774]">{row.label}</span>
+                  <span className={`text-sm text-[#111111] ${row.label === 'Precio' ? 'font-bold' : 'font-medium'}`}>
+                    {row.value ?? <span className="text-[#EAEAEA]">—</span>}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3 w-full max-w-sm">
+              <button
+                onClick={() => navigate('/')}
+                className="flex-1 py-2.5 px-5 bg-[#111111] text-white text-sm font-medium rounded-md hover:bg-[#333333] active:scale-[0.98] transition-all duration-200"
+              >
+                Volver al inicio
+              </button>
+              <button
+                onClick={() => {
+                  const start = new Date(`${selectedDate}T${selectedSlot}:00`);
+                  const end = new Date(start.getTime() + (selectedService?.duracion_minutos ?? 60) * 60000);
+                  const fmt = (d: Date) =>
+                    d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
+                  const url = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(`Turno: ${selectedService?.nombre ?? ''}`)}&dates=${fmt(start)}/${fmt(end)}&details=${encodeURIComponent(`Profesional: ${selectedStaff?.nombre ?? ''}`)}`;
+                  window.open(url, '_blank', 'noopener,noreferrer');
+                }}
+                className="flex-1 py-2.5 px-5 border border-[#EAEAEA] bg-white text-[#111111] text-sm font-medium rounded-md hover:bg-[#F7F6F3] transition-all duration-200"
+              >
+                Agregar al calendario
+              </button>
+            </div>
           </div>
         )}
 
-        {step !== 4 && (
+        {/* ── Steps 1-4 ───────────────────────────────────────────────────── */}
+        {step !== 5 && (
           <>
-            {/* Header */}
-            <div className="mb-8">
-              <h1 className="text-2xl font-bold text-white mb-4">Reservar turno</h1>
-
-              {/* Progress dots: contacto → servicio → profesional → horario */}
-              <div className="flex gap-2 items-center">
-                {(isGuest
-                  ? [
-                      { n: 0, label: 'Contacto' },
-                      { n: 1, label: 'Servicio' },
-                      { n: 2, label: 'Profesional' },
-                      { n: 3, label: 'Horario' },
-                    ]
-                  : [
-                      { n: 1, label: 'Servicio' },
-                      { n: 2, label: 'Profesional' },
-                      { n: 3, label: 'Horario' },
-                    ]
-                ).map((s, idx, arr) => (
-                  <React.Fragment key={s.n}>
-                    <div className="flex items-center gap-1.5">
-                      <div
-                        className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold transition-colors ${
-                          step >= s.n
-                            ? 'bg-white text-[#0D215B]'
-                            : 'bg-white/10 text-white/40'
-                        }`}
-                      >
-                        {idx + 1}
-                      </div>
-                      <span
-                        className={`text-sm hidden sm:block ${
-                          step >= s.n ? 'text-white' : 'text-white/30'
-                        }`}
-                      >
-                        {s.label}
-                      </span>
-                    </div>
-                    {idx < arr.length - 1 && (
-                      <div className="w-6 h-px bg-white/15 mx-1" />
-                    )}
-                  </React.Fragment>
-                ))}
-              </div>
+            {/* Stepper */}
+            <div className="step-entry mb-10 max-w-lg mx-auto">
+              <Stepper labels={stepLabels} current={step} />
             </div>
 
-            {/* Paso 0: datos de contacto (solo invitados) */}
-            {step === 0 && isGuest && (
-              <div className="space-y-5">
-                <h2 className="text-lg font-semibold text-white mb-1">¿Cómo te contactamos?</h2>
-                <p className="text-white/50 text-sm mb-5">
-                  No hace falta crear una cuenta. Solo ingresá tu nombre y teléfono.
-                </p>
+            {/* ── Step 1: Profesional ──────────────────────────────────────── */}
+            {step === 1 && (
+              <div className="step-entry space-y-6">
+                <h2 style={headingStyle} className="text-3xl text-[#111111]">
+                  Elegí tu profesional
+                </h2>
 
-                <div>
-                  <label className="block text-sm font-medium text-white/70 mb-1.5">
-                    Nombre completo
-                  </label>
-                  <input
-                    type="text"
-                    value={guestNombre}
-                    onChange={(e) => setGuestNombre(e.target.value)}
-                    placeholder="Juan García"
-                    className="w-full bg-white/5 border border-white/15 rounded-lg px-4 py-2.5
-                      text-white placeholder-white/25 focus:outline-none focus:ring-2
-                      focus:ring-white/30 focus:border-white/30 transition-colors"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-white/70 mb-1.5">
-                    Teléfono / WhatsApp
-                  </label>
-                  <input
-                    type="tel"
-                    value={guestTelefono}
-                    onChange={(e) => setGuestTelefono(e.target.value)}
-                    placeholder="3585 123456"
-                    className="w-full bg-white/5 border border-white/15 rounded-lg px-4 py-2.5
-                      text-white placeholder-white/25 focus:outline-none focus:ring-2
-                      focus:ring-white/30 focus:border-white/30 transition-colors"
-                  />
-                </div>
+                {activeStaff.length === 0 && staff.length === 0 ? (
+                  <div className="flex justify-center py-16">
+                    <LoadingSpinner />
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {activeStaff.map((s, idx) => (
+                      <button
+                        key={s.id}
+                        onClick={() => setSelectedStaff(s)}
+                        style={{ '--index': idx } as React.CSSProperties}
+                        className={`stagger-item text-left p-6 rounded-xl border transition-all duration-200 flex items-center gap-4 ${
+                          selectedStaff?.id === s.id
+                            ? 'border-2 border-[#111111] bg-[#F9F9F8]'
+                            : 'border border-[#EAEAEA] bg-white hover:shadow-[0_2px_8px_rgba(0,0,0,0.04)]'
+                        }`}
+                      >
+                        <div className="w-11 h-11 rounded-full bg-[#EDECEA] flex items-center justify-center flex-shrink-0">
+                          <span className="text-sm font-semibold text-[#2F3437]">
+                            {getInitials(s.nombre)}
+                          </span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-semibold text-[#111111] text-sm truncate">{s.nombre}</div>
+                          <div className="text-xs text-[#787774] mt-0.5">Profesional</div>
+                        </div>
+                        {selectedStaff?.id === s.id && (
+                          <div className="flex-shrink-0">
+                            <IconCheck size={16} />
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
 
                 <div className="pt-2">
                   <button
-                    disabled={!guestNombre.trim() || !guestTelefono.trim()}
-                    onClick={() => setStep(1)}
-                    className="w-full py-3 bg-white text-[#0D215B] font-bold rounded-xl
-                      hover:bg-white/90 active:scale-[0.98] transition-all duration-200
-                      disabled:opacity-40 disabled:cursor-not-allowed"
+                    disabled={!selectedStaff}
+                    onClick={() => setStep(2)}
+                    className={btnPrimary}
                   >
                     Continuar
                   </button>
@@ -258,193 +347,238 @@ export function Booking() {
               </div>
             )}
 
-            {/* Paso 1: servicio */}
-            {step === 1 && (
-              <div className="space-y-3">
-                <h2 className="text-lg font-semibold text-white mb-4">Elegí un servicio</h2>
-                {services.length === 0 ? (
-                  <div className="flex justify-center py-12">
+            {/* ── Step 2: Servicio ─────────────────────────────────────────── */}
+            {step === 2 && (
+              <div className="step-entry space-y-6">
+                <h2 style={headingStyle} className="text-3xl text-[#111111]">
+                  ¿Qué servicio necesitás?
+                </h2>
+
+                {activeServices.length === 0 && services.length === 0 ? (
+                  <div className="flex justify-center py-16">
                     <LoadingSpinner />
                   </div>
                 ) : (
-                  services.map((s) => (
-                    <ServiceCard
-                      key={s.id}
-                      service={s}
-                      selected={selectedService?.id === s.id}
-                      onClick={() => setSelectedService(s)}
-                    />
-                  ))
-                )}
-                <div className="pt-4 flex gap-3">
-                  {isGuest && (
-                    <Button
-                      variant="secondary"
-                      onClick={() => setStep(0)}
-                      className="flex-1"
-                    >
-                      Volver
-                    </Button>
-                  )}
-                  <Button
-                    disabled={!selectedService}
-                    onClick={() => setStep(2)}
-                    className={`${isGuest ? 'flex-1' : 'w-full'} bg-white text-[#0D215B] hover:bg-white/90 border-0`}
-                    size="lg"
-                  >
-                    Continuar
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {/* Paso 2: profesional + fecha */}
-            {step === 2 && (
-              <div className="space-y-6">
-                <div>
-                  <h2 className="text-lg font-semibold text-white mb-3">
-                    Elegí un profesional
-                  </h2>
-                  <div className="grid grid-cols-2 gap-3">
-                    {staff.map((s) => (
+                  <div className="space-y-3">
+                    {activeServices.map((s, idx) => (
                       <button
                         key={s.id}
-                        onClick={() => setSelectedStaff(s)}
-                        className={`p-4 rounded-xl border transition-all text-left flex items-center gap-3 ${
-                          selectedStaff?.id === s.id
-                            ? 'border-white/60 bg-white/10'
-                            : 'border-white/10 bg-white/5 hover:border-white/25'
+                        onClick={() => setSelectedService(s)}
+                        style={{ '--index': idx } as React.CSSProperties}
+                        className={`stagger-item w-full text-left p-5 rounded-xl border transition-all duration-200 flex items-center gap-4 ${
+                          selectedService?.id === s.id
+                            ? 'border-2 border-[#111111] bg-[#F9F9F8]'
+                            : 'border border-[#EAEAEA] bg-white hover:shadow-[0_2px_8px_rgba(0,0,0,0.04)]'
                         }`}
                       >
-                        <Avatar emoji={s.avatar} nombre={s.nombre} size="sm" />
-                        <span className="font-medium text-white text-sm">{s.nombre}</span>
+                        <div className="flex-1 min-w-0">
+                          <span className="font-medium text-[#111111] text-sm">{s.nombre}</span>
+                        </div>
+                        <div className="flex items-center gap-1 text-[#787774] text-xs flex-shrink-0">
+                          <IconClock />
+                          <span>{s.duracion_minutos}&nbsp;min</span>
+                        </div>
+                        <span className="font-bold text-[#111111] text-sm flex-shrink-0">
+                          ${s.precio.toLocaleString('es-AR')}
+                        </span>
+                        {selectedService?.id === s.id && (
+                          <div className="flex-shrink-0">
+                            <IconCheck size={16} />
+                          </div>
+                        )}
                       </button>
                     ))}
-                  </div>
-                </div>
-
-                {selectedStaff && (
-                  <div>
-                    <h2 className="text-lg font-semibold text-white mb-3">
-                      Elegí una fecha
-                    </h2>
-                    <div className="grid grid-cols-7 gap-1.5">
-                      {days14.map((d) => {
-                        const str = formatDate(d);
-                        const isSelected = selectedDate === str;
-                        return (
-                          <button
-                            key={str}
-                            onClick={() => setSelectedDate(str)}
-                            className={`p-2 rounded-lg text-center transition-all ${
-                              isSelected
-                                ? 'bg-white text-[#0D215B] font-bold'
-                                : 'bg-white/5 border border-white/10 text-white/70 hover:border-white/30'
-                            }`}
-                          >
-                            <div className="text-xs opacity-70">{DAYS[d.getDay()]}</div>
-                            <div className="text-sm font-semibold">{d.getDate()}</div>
-                          </button>
-                        );
-                      })}
-                    </div>
                   </div>
                 )}
 
                 <div className="flex gap-3 pt-2">
-                  <Button
-                    variant="secondary"
-                    onClick={() => setStep(1)}
-                    className="flex-1"
-                  >
+                  <button onClick={() => setStep(1)} className={btnSecondary}>
                     Volver
-                  </Button>
-                  <Button
-                    disabled={!selectedStaff || !selectedDate}
+                  </button>
+                  <button
+                    disabled={!selectedService}
                     onClick={() => setStep(3)}
-                    className="flex-1 bg-white text-[#0D215B] hover:bg-white/90 border-0"
+                    className={btnPrimary}
                   >
                     Continuar
-                  </Button>
+                  </button>
                 </div>
               </div>
             )}
 
-            {/* Paso 3: horario */}
+            {/* ── Step 3: Horario ──────────────────────────────────────────── */}
             {step === 3 && (
-              <div className="space-y-6">
-                <div className="bg-white/5 border border-white/10 rounded-xl p-4 space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-white/50">Servicio</span>
-                    <span className="text-white font-medium">{selectedService?.nombre}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-white/50">Profesional</span>
-                    <span className="text-white font-medium">{selectedStaff?.nombre}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-white/50">Fecha</span>
-                    <span className="text-white font-medium">
-                      {new Date(selectedDate + 'T12:00:00').toLocaleDateString('es-AR', {
-                        weekday: 'long',
-                        day: 'numeric',
-                        month: 'long',
-                      })}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-white/50">Precio</span>
-                    <span className="text-white font-bold">
-                      ${selectedService?.precio.toLocaleString('es-AR')}
-                    </span>
-                  </div>
-                </div>
+              <div className="step-entry">
+                <h2 style={headingStyle} className="text-3xl text-[#111111] mb-6">
+                  Elegí día y horario
+                </h2>
 
-                <div>
-                  <h2 className="text-lg font-semibold text-white mb-3">
-                    Elegí un horario
-                  </h2>
-                  {loadingSlots ? (
-                    <div className="flex justify-center py-8">
-                      <LoadingSpinner />
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+                  {/* Calendar + slots — left 2/3 */}
+                  <div className="lg:col-span-2 space-y-6">
+                    <div>
+                      <p className="text-xs uppercase tracking-widest text-[#787774] font-medium mb-3">
+                        Fecha
+                      </p>
+                      <div className="grid grid-cols-7 gap-1.5">
+                        {days30.map((d) => {
+                          const str = formatDate(d);
+                          const isSelected = selectedDate === str;
+                          const isToday = str === todayStr;
+                          return (
+                            <button
+                              key={str}
+                              onClick={() => setSelectedDate(str)}
+                              className={`py-2 rounded-md text-center transition-all duration-150 ${
+                                isSelected
+                                  ? 'bg-[#111111] text-white'
+                                  : 'border border-[#EAEAEA] bg-white text-[#2F3437] hover:bg-[#F7F6F3]'
+                              }`}
+                            >
+                              <div className={`text-[9px] leading-none mb-0.5 ${isSelected ? 'text-white/70' : 'text-[#787774]'}`}>
+                                {DAYS[d.getDay()]}
+                              </div>
+                              <div className={`text-sm leading-none ${isToday && !isSelected ? 'font-bold' : 'font-medium'}`}>
+                                {d.getDate()}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                  ) : slots.length === 0 ? (
-                    <p className="text-white/40 text-center py-8">
-                      No hay horarios disponibles para este día.
-                    </p>
-                  ) : (
-                    <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
-                      {slots.map((slot) => (
-                        <button
-                          key={slot}
-                          onClick={() => setSelectedSlot(slot)}
-                          className={`py-2.5 rounded-lg text-sm font-medium transition-all ${
-                            selectedSlot === slot
-                              ? 'bg-white text-[#0D215B] font-bold'
-                              : 'bg-white/5 border border-white/10 text-white/70 hover:border-white/30'
+
+                    {selectedDate && (
+                      <div>
+                        <p className="text-xs uppercase tracking-widest text-[#787774] font-medium mb-3">
+                          Horario disponible
+                        </p>
+                        {loadingSlots ? (
+                          <div className="flex justify-center py-8">
+                            <LoadingSpinner />
+                          </div>
+                        ) : slots.length === 0 ? (
+                          <p className="text-[#787774] text-sm py-4">
+                            No hay horarios disponibles para este día.
+                          </p>
+                        ) : (
+                          <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-2">
+                            {slots.map((slot) => (
+                              <button
+                                key={slot}
+                                onClick={() => setSelectedSlot(slot)}
+                                className={`py-2.5 rounded-md text-sm font-medium transition-all duration-150 ${
+                                  selectedSlot === slot
+                                    ? 'bg-[#111111] text-white'
+                                    : 'border border-[#EAEAEA] bg-white text-[#2F3437] hover:bg-[#F7F6F3]'
+                                }`}
+                              >
+                                {slot}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Summary sidebar — right 1/3 */}
+                  <div className="lg:sticky lg:top-20">
+                    <div className="border border-[#EAEAEA] rounded-xl bg-white overflow-hidden">
+                      <div className="px-5 py-3.5 border-b border-[#EAEAEA]">
+                        <p className="text-xs uppercase tracking-widest text-[#787774] font-medium">
+                          Resumen
+                        </p>
+                      </div>
+                      {summaryRows.map((row, i) => (
+                        <div
+                          key={row.label}
+                          className={`flex justify-between items-center px-5 py-3 ${
+                            i < summaryRows.length - 1 ? 'border-b border-[#EAEAEA]' : ''
                           }`}
                         >
-                          {slot}
-                        </button>
+                          <span className="text-xs text-[#787774]">{row.label}</span>
+                          <span className="text-xs font-medium text-[#111111] text-right max-w-[56%] truncate">
+                            {row.value ?? <span className="text-[#BDBDBD]">—</span>}
+                          </span>
+                        </div>
                       ))}
                     </div>
-                  )}
+                  </div>
                 </div>
 
-                <div className="flex gap-3">
-                  <Button
-                    variant="secondary"
-                    onClick={() => setStep(2)}
-                    className="flex-1"
-                  >
+                <div className="flex gap-3 mt-8">
+                  <button onClick={() => setStep(2)} className={btnSecondary}>
                     Volver
-                  </Button>
+                  </button>
+                  {isGuest ? (
+                    <button
+                      disabled={!selectedDate || !selectedSlot}
+                      onClick={() => setStep(4)}
+                      className={btnPrimary}
+                    >
+                      Continuar
+                    </button>
+                  ) : (
+                    <button
+                      disabled={!selectedDate || !selectedSlot || booking}
+                      onClick={() => void handleBook()}
+                      className={btnPrimary}
+                    >
+                      {booking && <LoadingSpinner size="sm" />}
+                      Confirmar turno
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── Step 4: Contacto (guest only) ────────────────────────────── */}
+            {step === 4 && isGuest && (
+              <div className="step-entry space-y-6 max-w-md">
+                <div>
+                  <h2 style={headingStyle} className="text-3xl text-[#111111]">
+                    ¿Cómo te avisamos?
+                  </h2>
+                  <p className="text-[#787774] text-sm mt-2">
+                    Solo para confirmarte el turno por WhatsApp.
+                  </p>
+                </div>
+
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-[#111111] mb-1.5">
+                      Nombre completo
+                    </label>
+                    <input
+                      type="text"
+                      value={guestNombre}
+                      onChange={(e) => setGuestNombre(e.target.value)}
+                      placeholder="Tu nombre"
+                      className="w-full border border-[#EAEAEA] rounded-md px-4 py-2.5 text-[#111111] text-sm placeholder-[#BDBDBD] bg-white focus:outline-none focus:border-[#111111] transition-colors duration-150"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-[#111111] mb-1.5">
+                      Teléfono / WhatsApp
+                    </label>
+                    <input
+                      type="tel"
+                      value={guestTelefono}
+                      onChange={(e) => setGuestTelefono(e.target.value)}
+                      placeholder="3585 000000"
+                      className="w-full border border-[#EAEAEA] rounded-md px-4 py-2.5 text-[#111111] text-sm placeholder-[#BDBDBD] bg-white focus:outline-none focus:border-[#111111] transition-colors duration-150"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button onClick={() => setStep(3)} className={btnSecondary}>
+                    Volver
+                  </button>
                   <button
-                    disabled={!selectedSlot || booking}
+                    disabled={!guestNombre.trim() || !guestTelefono.trim() || booking}
                     onClick={() => void handleBook()}
-                    className="flex-1 py-2.5 bg-white text-[#0D215B] font-bold rounded-lg
-                      hover:bg-white/90 transition-all disabled:opacity-40 disabled:cursor-not-allowed
-                      flex items-center justify-center gap-2"
+                    className={btnPrimary}
                   >
                     {booking && <LoadingSpinner size="sm" />}
                     Confirmar turno
@@ -455,6 +589,6 @@ export function Booking() {
           </>
         )}
       </div>
-    </PublicLayout>
+    </BookingLayout>
   );
 }
