@@ -4,7 +4,6 @@ import bcrypt from 'bcryptjs';
 import { supabaseAdmin } from '../lib/supabase';
 import { createMPPreference } from '../lib/mercadopago';
 import { sendBienvenida } from '../lib/email';
-import db from '../db';
 
 const router = Router();
 
@@ -276,17 +275,19 @@ export async function createBusinessAccount(registroId: string): Promise<void> {
     }
   }
 
-  // b.2) Crear usuario en SQLite para login JWT (sistema actual)
-  const existingUser = db.prepare('SELECT id FROM users WHERE email = ?').get(gmail);
+  // b.2) Crear usuario en Supabase para login JWT
+  const { data: existingUser } = await supabaseAdmin
+    .from('users')
+    .select('id')
+    .eq('email', gmail)
+    .maybeSingle();
+
   if (!existingUser) {
     const hash = bcrypt.hashSync(password, 10);
-    db.prepare('INSERT INTO users (email, password_hash, nombre, rol) VALUES (?, ?, ?, ?)').run(
-      gmail,
-      hash,
-      `${nombre} ${apellido}`,
-      'admin'
-    );
-    console.log(`[Cuenta] Usuario admin creado en SQLite para ${gmail}`);
+    await supabaseAdmin
+      .from('users')
+      .insert({ email: gmail, password_hash: hash, nombre: `${nombre} ${apellido}`, rol: 'admin' });
+    console.log(`[Cuenta] Usuario admin creado en Supabase para ${gmail}`);
   }
 
   // c) Crear registro en la tabla negocios

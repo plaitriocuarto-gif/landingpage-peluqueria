@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import db from '../db';
+import { supabaseAdmin } from '../lib/supabase';
 import { requireAuth, requireRole } from '../middleware/auth';
 import { sendConfirmacion } from '../lib/email';
 
@@ -16,42 +16,49 @@ function minutesToTime(minutes: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
-router.get('/available', (req: Request, res: Response) => {
-  const { staffId, date, serviceId } = req.query as {
-    staffId: string;
-    date: string;
-    serviceId: string;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function flattenAppointment(row: any) {
+  const { users, staff, services, ...base } = row;
+  return {
+    ...base,
+    client_nombre: base.guest_nombre ?? users?.nombre ?? null,
+    client_email: users?.email ?? null,
+    staff_nombre: staff?.nombre ?? null,
+    staff_avatar: staff?.avatar ?? null,
+    service_nombre: services?.nombre ?? null,
+    service_precio: services?.precio ?? null,
+    duracion_minutos: services?.duracion_minutos ?? null,
   };
+}
+
+router.get('/available', async (req: Request, res: Response) => {
+  const { staffId, date, serviceId } = req.query as { staffId: string; date: string; serviceId: string };
 
   if (!staffId || !date || !serviceId) {
     res.status(400).json({ error: 'staffId, date y serviceId son requeridos' });
     return;
   }
 
-  const service = db
-    .prepare('SELECT * FROM services WHERE id = ? AND activo = 1')
-    .get(Number(serviceId)) as { duracion_minutos: number } | undefined;
+  const { data: service } = await supabaseAdmin
+    .from('services')
+    .select('duracion_minutos')
+    .eq('id', Number(serviceId))
+    .eq('activo', 1)
+    .maybeSingle();
 
-  if (!service) {
-    res.status(404).json({ error: 'Servicio no encontrado' });
-    return;
-  }
+  if (!service) { res.status(404).json({ error: 'Servicio no encontrado' }); return; }
 
   const dateObj = new Date(`${date}T12:00:00`);
   const dayOfWeek = dateObj.getDay();
 
-  const exception = db
-    .prepare('SELECT * FROM staff_exceptions WHERE staff_id = ? AND fecha = ?')
-    .get(Number(staffId), date) as {
-      tipo: string;
-      hora_inicio: string;
-      hora_fin: string;
-    } | undefined;
+  const { data: exception } = await supabaseAdmin
+    .from('staff_exceptions')
+    .select('tipo, hora_inicio, hora_fin')
+    .eq('staff_id', Number(staffId))
+    .eq('fecha', date)
+    .maybeSingle();
 
-  if (exception?.tipo === 'libre') {
-    res.json({ slots: [] });
-    return;
-  }
+  if (exception?.tipo === 'libre') { res.json({ slots: [] }); return; }
 
   let horaInicio: string;
   let horaFin: string;
@@ -60,140 +67,56 @@ router.get('/available', (req: Request, res: Response) => {
   if (exception?.tipo === 'horario_especial') {
     horaInicio = exception.hora_inicio;
     horaFin = exception.hora_fin;
-    const schedule = db
-      .prepare('SELECT slot_minutos FROM staff_schedules WHERE staff_id = ? AND dia_semana = ?')
-      .get(Number(staffId), dayOfWeek) as { slot_minutos: number } | undefined;
-    slotMinutos = schedule?.slot_minutos ?? 30;
+    const { data: sched } = await supabaseAdmin
+      .from('staff_schedules')
+      .select('slot_minutos')
+      .eq('staff_id', Number(staffId))
+      .eq('dia_semana', dayOfWeek)
+      .maybeSingle();
+    slotMinutos = sched?.slot_minutos ?? 30;
   } else {
-    const schedule = db
-      .prepare('SELECT * FROM staff_schedules WHERE staff_id = ? AND dia_semana = ?')
-      .get(Number(staffId), dayOfWeek) as {
-        hora_inicio: string;
-        hora_fin: string;
-        slot_minutos: number;
-      } | undefined;
-
-    if (!schedule) {
-      res.json({ slots: [] });
-      return;
-    }
-
+    const { data: schedule } = await supabaseAdmin
+      .from('staff_schedules')
+      .select('hora_inicio, hora_fin, slot_minutos')
+      .eq('staff_id', Number(staffId))
+      .eq('dia_semana', dayOfWeek)
+      .maybeSingle();
+    if (!schedule) { res.json({ slots: [] }); return; }
     horaInicio = schedule.hora_inicio;
     horaFin = schedule.hora_fin;
     slotMinutos = schedule.slot_minutos;
   }
 
-  const booked = db
-    .prepare(
-      "SELECT hora_inicio, hora_fin FROM appointments WHERE staff_id = ? AND fecha = ? AND estado != 'cancelado'"
-    )
-    .all(Number(staffId), date) as Array<{ hora_inicio: string; hora_fin: string }>;
+  const { data: booked } = await supabaseAdmin
+    .from('appointments')
+    .select('hora_inicio, hora_fin')
+    .eq('staff_id', Number(staffId))
+    .eq('fecha', date)
+    .neq('estado', 'cancelado');
 
   const startMin = timeToMinutes(horaInicio);
   const endMin = timeToMinutes(horaFin);
   const duration = service.duracion_minutos;
 
-  const bookedRanges = booked.map((a) => ({
+  const bookedRanges = (booked ?? []).map((a) => ({
     start: timeToMinutes(a.hora_inicio),
     end: timeToMinutes(a.hora_fin),
   }));
 
   const slots: string[] = [];
-
   for (let slot = startMin; slot + duration <= endMin; slot += slotMinutos) {
     const slotEnd = slot + duration;
     const conflict = bookedRanges.some((r) => slot < r.end && slotEnd > r.start);
-    if (!conflict) {
-      slots.push(minutesToTime(slot));
-    }
+    if (!conflict) slots.push(minutesToTime(slot));
   }
 
   res.json({ slots });
 });
 
-// Reserva de turno sin autenticación (invitados)
-router.post('/guest', (req: Request, res: Response) => {
-  const { nombre, telefono, staffId, serviceId, fecha, horaInicio } = req.body as {
-    nombre: string;
-    telefono: string;
-    staffId: number;
-    serviceId: number;
-    fecha: string;
-    horaInicio: string;
-  };
-
-  if (!nombre || !telefono || !staffId || !serviceId || !fecha || !horaInicio) {
-    res.status(400).json({ error: 'Datos incompletos' });
-    return;
-  }
-
-  // Buscar o crear usuario invitado identificado por teléfono
-  const guestEmail = `${telefono.replace(/\D/g, '')}@guest.plait`;
-  let guestUser = db.prepare('SELECT id FROM users WHERE email = ?').get(guestEmail) as
-    | { id: number }
-    | undefined;
-
-  if (!guestUser) {
-    const inserted = db
-      .prepare('INSERT INTO users (email, password_hash, nombre, rol) VALUES (?, ?, ?, ?)')
-      .run(guestEmail, 'GUEST_NOLOGIN', nombre, 'cliente');
-    guestUser = { id: Number(inserted.lastInsertRowid) };
-  }
-
-  const service = db
-    .prepare('SELECT * FROM services WHERE id = ? AND activo = 1')
-    .get(Number(serviceId)) as { duracion_minutos: number } | undefined;
-
-  if (!service) {
-    res.status(404).json({ error: 'Servicio no encontrado' });
-    return;
-  }
-
-  const startMin = timeToMinutes(horaInicio);
-  const horaFin = minutesToTime(startMin + service.duracion_minutos);
-
-  const conflictCheck = db
-    .prepare(`
-      SELECT id FROM appointments
-      WHERE staff_id = ? AND fecha = ? AND estado != 'cancelado'
-      AND hora_inicio < ? AND hora_fin > ?
-    `)
-    .get(Number(staffId), fecha, horaFin, horaInicio);
-
-  if (conflictCheck) {
-    res.status(409).json({ error: 'El horario ya está reservado' });
-    return;
-  }
-
-  const result = db
-    .prepare(`
-      INSERT INTO appointments (client_id, staff_id, service_id, fecha, hora_inicio, hora_fin, estado)
-      VALUES (?, ?, ?, ?, ?, ?, 'pendiente')
-    `)
-    .run(guestUser.id, Number(staffId), Number(serviceId), fecha, horaInicio, horaFin);
-
-  const appointment = db
-    .prepare(`
-      SELECT a.*, s.nombre AS staff_nombre, sv.nombre AS service_nombre
-      FROM appointments a
-      JOIN staff s ON a.staff_id = s.id
-      JOIN services sv ON a.service_id = sv.id
-      WHERE a.id = ?
-    `)
-    .get(Number(result.lastInsertRowid));
-
-  res.status(201).json(appointment);
-});
-
-// Reserva sin cuenta — invitado proporciona nombre y teléfono
+// Reserva de invitado (sin cuenta)
 router.post('/guest', async (req: Request, res: Response) => {
   const { nombre, telefono, staffId, serviceId, fecha, horaInicio } = req.body as {
-    nombre: string;
-    telefono: string;
-    staffId: number;
-    serviceId: number;
-    fecha: string;
-    horaInicio: string;
+    nombre: string; telefono: string; staffId: number; serviceId: number; fecha: string; horaInicio: string;
   };
 
   if (!nombre?.trim() || !staffId || !serviceId || !fecha || !horaInicio) {
@@ -201,104 +124,77 @@ router.post('/guest', async (req: Request, res: Response) => {
     return;
   }
 
-  const service = db
-    .prepare('SELECT * FROM services WHERE id = ? AND activo = 1')
-    .get(Number(serviceId)) as { duracion_minutos: number; nombre: string; precio: number } | undefined;
+  const { data: service } = await supabaseAdmin
+    .from('services')
+    .select('duracion_minutos, nombre, precio')
+    .eq('id', Number(serviceId))
+    .eq('activo', 1)
+    .maybeSingle();
 
-  if (!service) {
-    res.status(404).json({ error: 'Servicio no encontrado' });
-    return;
-  }
+  if (!service) { res.status(404).json({ error: 'Servicio no encontrado' }); return; }
 
-  const startMin = timeToMinutes(horaInicio);
-  const horaFin = minutesToTime(startMin + service.duracion_minutos);
+  const horaFin = minutesToTime(timeToMinutes(horaInicio) + service.duracion_minutos);
 
-  const conflictCheck = db
-    .prepare(`
-      SELECT id FROM appointments
-      WHERE staff_id = ? AND fecha = ? AND estado != 'cancelado'
-      AND hora_inicio < ? AND hora_fin > ?
-    `)
-    .get(Number(staffId), fecha, horaFin, horaInicio);
+  const { data: conflict } = await supabaseAdmin
+    .from('appointments')
+    .select('id')
+    .eq('staff_id', Number(staffId))
+    .eq('fecha', fecha)
+    .neq('estado', 'cancelado')
+    .lt('hora_inicio', horaFin)
+    .gt('hora_fin', horaInicio)
+    .maybeSingle();
 
-  if (conflictCheck) {
-    res.status(409).json({ error: 'El horario ya está reservado' });
-    return;
-  }
+  if (conflict) { res.status(409).json({ error: 'El horario ya está reservado' }); return; }
 
-  const result = db
-    .prepare(`
-      INSERT INTO appointments
-        (client_id, guest_nombre, guest_telefono, staff_id, service_id, fecha, hora_inicio, hora_fin, estado)
-      VALUES (NULL, ?, ?, ?, ?, ?, ?, ?, 'pendiente')
-    `)
-    .run(nombre.trim(), telefono?.trim() ?? null, Number(staffId), Number(serviceId), fecha, horaInicio, horaFin);
+  const { data: newAppt, error } = await supabaseAdmin
+    .from('appointments')
+    .insert({
+      client_id: null,
+      guest_nombre: nombre.trim(),
+      guest_telefono: telefono?.trim() ?? null,
+      staff_id: Number(staffId),
+      service_id: Number(serviceId),
+      fecha,
+      hora_inicio: horaInicio,
+      hora_fin: horaFin,
+      estado: 'pendiente',
+    })
+    .select(`*, staff:staff_id(nombre, avatar), services:service_id(nombre, precio, duracion_minutos)`)
+    .single();
 
-  const appointment = db
-    .prepare(`
-      SELECT a.*, s.nombre AS staff_nombre, sv.nombre AS service_nombre, sv.precio AS service_precio
-      FROM appointments a
-      JOIN staff s ON a.staff_id = s.id
-      JOIN services sv ON a.service_id = sv.id
-      WHERE a.id = ?
-    `)
-    .get(Number(result.lastInsertRowid)) as Record<string, unknown> & {
-      staff_nombre: string;
-      service_nombre: string;
-      service_precio: number;
-    };
+  if (error || !newAppt) { res.status(500).json({ error: 'Error al crear el turno' }); return; }
 
-  // Enviar email de confirmación si el invitado dejó email (futuro)
-  // Por ahora logueamos la reserva
-  console.log(`[Appointments] Reserva invitado: ${nombre} | ${fecha} ${horaInicio} | ${appointment.service_nombre}`);
+  const appt = flattenAppointment(newAppt);
 
-  // Intentar enviar email si el nombre parece un email
+  console.log(`[Appointments] Reserva invitado: ${nombre} | ${fecha} ${horaInicio} | ${appt.service_nombre}`);
+
   if (nombre.includes('@')) {
     try {
-      const shopName = (db
-        .prepare("SELECT value FROM shop_config WHERE key = 'nombre'")
-        .get() as { value: string } | undefined)?.value ?? 'Peluquería';
-
+      const { data: configRows } = await supabaseAdmin.from('shop_config').select('key, value');
+      const shopName = configRows?.find((r) => r.key === 'nombre')?.value ?? 'Peluquería';
       await sendConfirmacion({
         clienteEmail: nombre,
         clienteNombre: nombre,
         fecha,
         hora_inicio: horaInicio,
-        servicio: appointment.service_nombre,
-        profesional: appointment.staff_nombre,
+        servicio: appt.service_nombre ?? '',
+        profesional: appt.staff_nombre ?? '',
         peluqueria: shopName,
-        precio: appointment.service_precio,
+        precio: appt.service_precio ?? 0,
       });
     } catch (err) {
       console.warn('[Appointments] No se pudo enviar email de confirmación:', err);
     }
   }
 
-  res.status(201).json(appointment);
+  res.status(201).json(appt);
 });
 
-router.get('/my', requireAuth, (req: Request, res: Response) => {
-  const appointments = db
-    .prepare(`
-      SELECT a.*, s.nombre AS staff_nombre, s.avatar AS staff_avatar,
-             sv.nombre AS service_nombre, sv.precio AS service_precio
-      FROM appointments a
-      JOIN staff s ON a.staff_id = s.id
-      JOIN services sv ON a.service_id = sv.id
-      WHERE a.client_id = ?
-      ORDER BY a.fecha DESC, a.hora_inicio DESC
-    `)
-    .all(req.user!.id);
-
-  res.json(appointments);
-});
-
-router.post('/', requireAuth, (req: Request, res: Response) => {
+// Reserva autenticada
+router.post('/', requireAuth, async (req: Request, res: Response) => {
   const { staffId, serviceId, fecha, horaInicio } = req.body as {
-    staffId: number;
-    serviceId: number;
-    fecha: string;
-    horaInicio: string;
+    staffId: number; serviceId: number; fecha: string; horaInicio: string;
   };
 
   if (!staffId || !serviceId || !fecha || !horaInicio) {
@@ -306,217 +202,174 @@ router.post('/', requireAuth, (req: Request, res: Response) => {
     return;
   }
 
-  const service = db
-    .prepare('SELECT * FROM services WHERE id = ? AND activo = 1')
-    .get(Number(serviceId)) as { duracion_minutos: number } | undefined;
+  const { data: service } = await supabaseAdmin
+    .from('services')
+    .select('duracion_minutos')
+    .eq('id', Number(serviceId))
+    .eq('activo', 1)
+    .maybeSingle();
 
-  if (!service) {
-    res.status(404).json({ error: 'Servicio no encontrado' });
-    return;
-  }
+  if (!service) { res.status(404).json({ error: 'Servicio no encontrado' }); return; }
 
-  const startMin = timeToMinutes(horaInicio);
-  const horaFin = minutesToTime(startMin + service.duracion_minutos);
+  const horaFin = minutesToTime(timeToMinutes(horaInicio) + service.duracion_minutos);
 
-  const conflictCheck = db
-    .prepare(`
-      SELECT id FROM appointments
-      WHERE staff_id = ? AND fecha = ? AND estado != 'cancelado'
-      AND hora_inicio < ? AND hora_fin > ?
-    `)
-    .get(Number(staffId), fecha, horaFin, horaInicio);
+  const { data: conflict } = await supabaseAdmin
+    .from('appointments')
+    .select('id')
+    .eq('staff_id', Number(staffId))
+    .eq('fecha', fecha)
+    .neq('estado', 'cancelado')
+    .lt('hora_inicio', horaFin)
+    .gt('hora_fin', horaInicio)
+    .maybeSingle();
 
-  if (conflictCheck) {
-    res.status(409).json({ error: 'El horario ya está reservado' });
-    return;
-  }
+  if (conflict) { res.status(409).json({ error: 'El horario ya está reservado' }); return; }
 
-  const result = db
-    .prepare(`
-      INSERT INTO appointments (client_id, staff_id, service_id, fecha, hora_inicio, hora_fin, estado)
-      VALUES (?, ?, ?, ?, ?, ?, 'pendiente')
-    `)
-    .run(req.user!.id, Number(staffId), Number(serviceId), fecha, horaInicio, horaFin);
+  const { data: newAppt, error } = await supabaseAdmin
+    .from('appointments')
+    .insert({
+      client_id: req.user!.id,
+      staff_id: Number(staffId),
+      service_id: Number(serviceId),
+      fecha,
+      hora_inicio: horaInicio,
+      hora_fin: horaFin,
+      estado: 'pendiente',
+    })
+    .select(`*, staff:staff_id(nombre), services:service_id(nombre)`)
+    .single();
 
-  const appointment = db
-    .prepare(`
-      SELECT a.*, s.nombre AS staff_nombre, sv.nombre AS service_nombre
-      FROM appointments a
-      JOIN staff s ON a.staff_id = s.id
-      JOIN services sv ON a.service_id = sv.id
-      WHERE a.id = ?
-    `)
-    .get(Number(result.lastInsertRowid));
+  if (error || !newAppt) { res.status(500).json({ error: 'Error al crear el turno' }); return; }
 
-  res.status(201).json(appointment);
+  res.status(201).json(flattenAppointment(newAppt));
 });
 
-router.delete('/:id', requireAuth, (req: Request, res: Response) => {
-  const appointment = db
-    .prepare('SELECT * FROM appointments WHERE id = ? AND client_id = ?')
-    .get(Number(req.params.id), req.user!.id) as {
-      fecha: string;
-      hora_inicio: string;
-      estado: string;
-    } | undefined;
+// Mis turnos (cliente autenticado)
+router.get('/my', requireAuth, async (req: Request, res: Response) => {
+  const { data } = await supabaseAdmin
+    .from('appointments')
+    .select(`*, staff:staff_id(nombre, avatar), services:service_id(nombre, precio, duracion_minutos)`)
+    .eq('client_id', req.user!.id)
+    .order('fecha', { ascending: false })
+    .order('hora_inicio', { ascending: false });
 
-  if (!appointment) {
-    res.status(404).json({ error: 'Turno no encontrado' });
-    return;
-  }
+  res.json((data ?? []).map(flattenAppointment));
+});
 
-  if (appointment.estado === 'cancelado') {
-    res.status(400).json({ error: 'El turno ya está cancelado' });
-    return;
-  }
+// Cancelar turno
+router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
+  const { data: appointment } = await supabaseAdmin
+    .from('appointments')
+    .select('fecha, hora_inicio, estado')
+    .eq('id', Number(req.params.id))
+    .eq('client_id', req.user!.id)
+    .maybeSingle();
 
-  const configRow = db
-    .prepare("SELECT value FROM shop_config WHERE key = 'cancellation_hours'")
-    .get() as { value: string } | undefined;
+  if (!appointment) { res.status(404).json({ error: 'Turno no encontrado' }); return; }
+  if (appointment.estado === 'cancelado') { res.status(400).json({ error: 'El turno ya está cancelado' }); return; }
+
+  const { data: configRow } = await supabaseAdmin
+    .from('shop_config')
+    .select('value')
+    .eq('key', 'cancellation_hours')
+    .maybeSingle();
 
   const cancelHours = Number(configRow?.value ?? 2);
   const appointmentDateTime = new Date(`${appointment.fecha}T${appointment.hora_inicio}:00`);
   const limitDateTime = new Date(appointmentDateTime.getTime() - cancelHours * 60 * 60 * 1000);
 
   if (new Date() > limitDateTime) {
-    res.status(400).json({
-      error: `No se puede cancelar con menos de ${cancelHours} hora(s) de anticipación`,
-    });
+    res.status(400).json({ error: `No se puede cancelar con menos de ${cancelHours} hora(s) de anticipación` });
     return;
   }
 
-  db.prepare("UPDATE appointments SET estado = 'cancelado' WHERE id = ?").run(
-    Number(req.params.id)
-  );
-
+  await supabaseAdmin.from('appointments').update({ estado: 'cancelado' }).eq('id', Number(req.params.id));
   res.json({ message: 'Turno cancelado exitosamente' });
 });
 
-router.get('/', requireAuth, requireRole('admin'), (req: Request, res: Response) => {
-  const { fecha, staffId, estado } = req.query as {
-    fecha?: string;
-    staffId?: string;
-    estado?: string;
-  };
+// Admin: todos los turnos con filtros
+router.get('/', requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
+  const { fecha, staffId, estado } = req.query as { fecha?: string; staffId?: string; estado?: string };
 
-  let query = `
-    SELECT a.*,
-           u.nombre AS client_nombre, u.email AS client_email,
-           s.nombre AS staff_nombre, s.avatar AS staff_avatar,
-           sv.nombre AS service_nombre, sv.precio AS service_precio
-    FROM appointments a
-    JOIN users u ON a.client_id = u.id
-    JOIN staff s ON a.staff_id = s.id
-    JOIN services sv ON a.service_id = sv.id
-    WHERE 1=1
-  `;
-
-  const params: (string | number)[] = [];
-
-  if (fecha) {
-    query += ' AND a.fecha = ?';
-    params.push(fecha);
-  }
-  if (staffId) {
-    query += ' AND a.staff_id = ?';
-    params.push(Number(staffId));
-  }
-  if (estado) {
-    query += ' AND a.estado = ?';
-    params.push(estado);
-  }
-
-  query += ' ORDER BY a.fecha DESC, a.hora_inicio ASC';
-
-  const stmt = db.prepare(query);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const appointments = (stmt.all as (...args: any[]) => unknown[])(...params);
-  res.json(appointments);
+  let query: any = supabaseAdmin
+    .from('appointments')
+    .select(`*, users:client_id(nombre, email), staff:staff_id(nombre, avatar), services:service_id(nombre, precio)`);
+
+  if (fecha) query = query.eq('fecha', fecha);
+  if (staffId) query = query.eq('staff_id', Number(staffId));
+  if (estado) query = query.eq('estado', estado);
+
+  query = query.order('fecha', { ascending: false }).order('hora_inicio', { ascending: true });
+
+  const { data } = await query;
+  res.json((data ?? []).map(flattenAppointment));
 });
 
-router.put('/:id/status', requireAuth, requireRole('admin'), (req: Request, res: Response) => {
+// Admin: actualizar estado de turno
+router.put('/:id/status', requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
   const { estado } = req.body as { estado: string };
-
   const validStates = ['pendiente', 'confirmado', 'cancelado', 'completado'];
-  if (!validStates.includes(estado)) {
-    res.status(400).json({ error: 'Estado inválido' });
-    return;
-  }
+  if (!validStates.includes(estado)) { res.status(400).json({ error: 'Estado inválido' }); return; }
 
-  const result = db
-    .prepare('UPDATE appointments SET estado = ? WHERE id = ?')
-    .run(estado, Number(req.params.id));
+  const { data, error } = await supabaseAdmin
+    .from('appointments')
+    .update({ estado })
+    .eq('id', Number(req.params.id))
+    .select(`*, users:client_id(nombre), staff:staff_id(nombre), services:service_id(nombre)`)
+    .maybeSingle();
 
-  if (result.changes === 0) {
-    res.status(404).json({ error: 'Turno no encontrado' });
-    return;
-  }
-
-  const updated = db
-    .prepare(`
-      SELECT a.*,
-             u.nombre AS client_nombre,
-             s.nombre AS staff_nombre,
-             sv.nombre AS service_nombre
-      FROM appointments a
-      JOIN users u ON a.client_id = u.id
-      JOIN staff s ON a.staff_id = s.id
-      JOIN services sv ON a.service_id = sv.id
-      WHERE a.id = ?
-    `)
-    .get(Number(req.params.id));
-
-  res.json(updated);
+  if (error || !data) { res.status(404).json({ error: 'Turno no encontrado' }); return; }
+  res.json(flattenAppointment(data));
 });
 
-router.get('/staff', requireAuth, requireRole('staff', 'admin'), (req: Request, res: Response) => {
+// Staff: ver su propia agenda
+router.get('/staff', requireAuth, requireRole('staff', 'admin'), async (req: Request, res: Response) => {
   const { semana } = req.query as { semana?: string };
 
   let staffId: number;
 
   if (req.user!.rol === 'staff') {
-    const staffUser = db
-      .prepare('SELECT id FROM staff WHERE nombre = (SELECT nombre FROM users WHERE id = ?)')
-      .get(req.user!.id) as { id: number } | undefined;
+    const { data: userData } = await supabaseAdmin
+      .from('users')
+      .select('nombre')
+      .eq('id', req.user!.id)
+      .single();
 
-    if (!staffUser) {
-      res.status(404).json({ error: 'No se encontró perfil de empleado' });
-      return;
-    }
-    staffId = staffUser.id;
+    const { data: staffRecord } = await supabaseAdmin
+      .from('staff')
+      .select('id')
+      .eq('nombre', userData?.nombre ?? '')
+      .maybeSingle();
+
+    if (!staffRecord) { res.status(404).json({ error: 'No se encontró perfil de empleado' }); return; }
+    staffId = staffRecord.id;
   } else {
     staffId = Number(req.query.staffId);
   }
 
-  let dateFilter = '';
-  const params: (string | number)[] = [staffId];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let query: any = supabaseAdmin
+    .from('appointments')
+    .select(`*, users:client_id(nombre, email), services:service_id(nombre, duracion_minutos)`)
+    .eq('staff_id', staffId)
+    .neq('estado', 'cancelado');
 
   if (semana) {
     const start = new Date(semana);
     const end = new Date(start);
     end.setDate(end.getDate() + 6);
-    dateFilter = ' AND a.fecha >= ? AND a.fecha <= ?';
-    params.push(start.toISOString().split('T')[0]);
-    params.push(end.toISOString().split('T')[0]);
+    query = query
+      .gte('fecha', start.toISOString().split('T')[0])
+      .lte('fecha', end.toISOString().split('T')[0]);
   } else {
-    dateFilter = ' AND a.fecha = ?';
-    params.push(new Date().toISOString().split('T')[0]);
+    query = query.eq('fecha', new Date().toISOString().split('T')[0]);
   }
 
-  const staffStmt = db.prepare(`
-    SELECT a.*,
-           u.nombre AS client_nombre, u.email AS client_email,
-           sv.nombre AS service_nombre, sv.duracion_minutos
-    FROM appointments a
-    JOIN users u ON a.client_id = u.id
-    JOIN services sv ON a.service_id = sv.id
-    WHERE a.staff_id = ? ${dateFilter} AND a.estado != 'cancelado'
-    ORDER BY a.fecha ASC, a.hora_inicio ASC
-  `);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const appointments = (staffStmt.all as (...args: any[]) => unknown[])(...params);
+  query = query.order('fecha', { ascending: true }).order('hora_inicio', { ascending: true });
 
-  res.json(appointments);
+  const { data } = await query;
+  res.json((data ?? []).map(flattenAppointment));
 });
 
 export default router;

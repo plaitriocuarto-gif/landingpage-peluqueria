@@ -1,87 +1,62 @@
 import { Router, Request, Response } from 'express';
-import db from '../db';
+import { supabaseAdmin } from '../lib/supabase';
 import { requireAuth, requireRole } from '../middleware/auth';
 
 const router = Router();
 
-router.get('/', (req: Request, res: Response) => {
-  const services = db
-    .prepare('SELECT * FROM services WHERE activo = 1 ORDER BY nombre')
-    .all();
-  res.json(services);
+router.get('/', async (req: Request, res: Response) => {
+  const { data } = await supabaseAdmin.from('services').select('*').eq('activo', 1).order('nombre');
+  res.json(data ?? []);
 });
 
-router.get('/all', requireAuth, requireRole('admin'), (req: Request, res: Response) => {
-  const services = db.prepare('SELECT * FROM services ORDER BY nombre').all();
-  res.json(services);
+router.get('/all', requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
+  const { data } = await supabaseAdmin.from('services').select('*').order('nombre');
+  res.json(data ?? []);
 });
 
-router.post('/', requireAuth, requireRole('admin'), (req: Request, res: Response) => {
-  const { nombre, duracion_minutos, precio } = req.body as {
-    nombre: string;
-    duracion_minutos: number;
-    precio: number;
-  };
-
+router.post('/', requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
+  const { nombre, duracion_minutos, precio } = req.body as { nombre: string; duracion_minutos: number; precio: number };
   if (!nombre || !duracion_minutos || precio === undefined) {
     res.status(400).json({ error: 'nombre, duracion_minutos y precio son requeridos' });
     return;
   }
-
-  const result = db
-    .prepare('INSERT INTO services (nombre, duracion_minutos, precio, activo) VALUES (?, ?, ?, 1)')
-    .run(nombre, duracion_minutos, precio);
-
-  const service = db
-    .prepare('SELECT * FROM services WHERE id = ?')
-    .get(Number(result.lastInsertRowid));
-
-  res.status(201).json(service);
+  const { data, error } = await supabaseAdmin
+    .from('services')
+    .insert({ nombre, duracion_minutos, precio, activo: 1 })
+    .select()
+    .single();
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.status(201).json(data);
 });
 
-router.put('/:id', requireAuth, requireRole('admin'), (req: Request, res: Response) => {
+router.put('/:id', requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
   const { nombre, duracion_minutos, precio, activo } = req.body as {
-    nombre?: string;
-    duracion_minutos?: number;
-    precio?: number;
-    activo?: number;
+    nombre?: string; duracion_minutos?: number; precio?: number; activo?: number;
   };
+  const id = Number(req.params.id);
 
-  const existing = db.prepare('SELECT id FROM services WHERE id = ?').get(Number(req.params.id));
-  if (!existing) {
-    res.status(404).json({ error: 'Servicio no encontrado' });
-    return;
-  }
+  const { data: existing } = await supabaseAdmin.from('services').select('id').eq('id', id).maybeSingle();
+  if (!existing) { res.status(404).json({ error: 'Servicio no encontrado' }); return; }
 
-  db.prepare(`
-    UPDATE services SET
-      nombre = COALESCE(?, nombre),
-      duracion_minutos = COALESCE(?, duracion_minutos),
-      precio = COALESCE(?, precio),
-      activo = COALESCE(?, activo)
-    WHERE id = ?
-  `).run(
-    nombre ?? null,
-    duracion_minutos ?? null,
-    precio ?? null,
-    activo ?? null,
-    Number(req.params.id)
-  );
+  const update: Record<string, unknown> = {};
+  if (nombre !== undefined) update.nombre = nombre;
+  if (duracion_minutos !== undefined) update.duracion_minutos = duracion_minutos;
+  if (precio !== undefined) update.precio = precio;
+  if (activo !== undefined) update.activo = activo;
 
-  const updated = db.prepare('SELECT * FROM services WHERE id = ?').get(Number(req.params.id));
-  res.json(updated);
+  const { data, error } = await supabaseAdmin.from('services').update(update).eq('id', id).select().single();
+  if (error) { res.status(500).json({ error: error.message }); return; }
+  res.json(data);
 });
 
-router.delete('/:id', requireAuth, requireRole('admin'), (req: Request, res: Response) => {
-  const result = db
-    .prepare('UPDATE services SET activo = 0 WHERE id = ?')
-    .run(Number(req.params.id));
-
-  if (result.changes === 0) {
-    res.status(404).json({ error: 'Servicio no encontrado' });
-    return;
-  }
-
+router.delete('/:id', requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
+  const { data, error } = await supabaseAdmin
+    .from('services')
+    .update({ activo: 0 })
+    .eq('id', Number(req.params.id))
+    .select()
+    .maybeSingle();
+  if (error || !data) { res.status(404).json({ error: 'Servicio no encontrado' }); return; }
   res.json({ message: 'Servicio desactivado' });
 });
 

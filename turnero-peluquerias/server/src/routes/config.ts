@@ -1,55 +1,35 @@
 import { Router, Request, Response } from 'express';
-import db from '../db';
+import { supabaseAdmin } from '../lib/supabase';
 import { requireAuth, requireRole } from '../middleware/auth';
 
 const router = Router();
 
-router.get('/', (req: Request, res: Response) => {
-  const rows = db.prepare('SELECT key, value FROM shop_config').all() as Array<{
-    key: string;
-    value: string;
-  }>;
-
+router.get('/', async (req: Request, res: Response) => {
+  const { data } = await supabaseAdmin.from('shop_config').select('key, value');
   const config: Record<string, string> = {};
-  for (const row of rows) {
+  for (const row of data ?? []) {
     config[row.key] = row.value;
   }
-
   res.json(config);
 });
 
-router.put('/', requireAuth, requireRole('admin'), (req: Request, res: Response) => {
+router.put('/', requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
   const updates = req.body as Record<string, string>;
-
   const allowed = ['nombre', 'logo', 'color', 'cancellation_hours', 'descripcion'];
 
-  const upsert = db.prepare(
-    'INSERT OR REPLACE INTO shop_config (key, value) VALUES (?, ?)'
-  );
-
-  db.exec('BEGIN');
-  try {
-    for (const [key, value] of Object.entries(updates)) {
-      if (allowed.includes(key)) {
-        upsert.run(key, String(value));
-      }
+  for (const [key, value] of Object.entries(updates)) {
+    if (allowed.includes(key)) {
+      await supabaseAdmin
+        .from('shop_config')
+        .upsert({ key, value: String(value) }, { onConflict: 'key' });
     }
-    db.exec('COMMIT');
-  } catch (err) {
-    db.exec('ROLLBACK');
-    throw err;
   }
 
-  const rows = db.prepare('SELECT key, value FROM shop_config').all() as Array<{
-    key: string;
-    value: string;
-  }>;
-
+  const { data } = await supabaseAdmin.from('shop_config').select('key, value');
   const config: Record<string, string> = {};
-  for (const row of rows) {
+  for (const row of data ?? []) {
     config[row.key] = row.value;
   }
-
   res.json(config);
 });
 
