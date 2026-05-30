@@ -49,3 +49,9 @@ CREATE INDEX IF NOT EXISTS idx_negocios_slug
 
 CREATE INDEX IF NOT EXISTS idx_negocios_clerk
   ON negocios(clerk_user_id);
+
+-- ============================================================
+-- Migración: agregar guest_email a appointments
+-- Ejecutar en Supabase → SQL Editor
+-- ============================================================
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS guest_email TEXT;

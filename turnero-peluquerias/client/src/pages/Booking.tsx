@@ -9,7 +9,7 @@ import { useToast } from '../contexts/ToastContext';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { BookingLayout } from '../components/layout/Layout';
 
-// Steps: 1=Profesional 2=Servicio 3=Horario 4=Contacto(guest) 5=Confirmacion(guest)
+// Steps: 1=Profesional 2=Servicio 3=Horario 4=Datos 5=Confirmacion
 type Step = 1 | 2 | 3 | 4 | 5;
 
 const DAYS = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
@@ -121,17 +121,19 @@ function Stepper({ labels, current }: StepperProps) {
 
 export function Booking() {
   const { user } = useAuth();
-  const isGuest = !user;
   const { showToast } = useToast();
   const navigate = useNavigate();
 
   const [step, setStep] = useState<Step>(1);
 
-  const [guestNombre, setGuestNombre] = useState('');
-  const [guestTelefono, setGuestTelefono] = useState('');
+  // Client contact data (paso 4) — pre-filled for auth users
+  const [clienteNombre, setClienteNombre] = useState('');
+  const [clienteApellido, setClienteApellido] = useState('');
+  const [clienteGmail, setClienteGmail] = useState('');
 
   const [services, setServices] = useState<Service[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
+  const [loadingData, setLoadingData] = useState(true);
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [selectedStaff, setSelectedStaff] = useState<Staff | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>('');
@@ -140,10 +142,23 @@ export function Booking() {
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [booking, setBooking] = useState(false);
 
+  // Pre-fill contact fields for authenticated users
   useEffect(() => {
-    void servicesApi.list().then(setServices);
-    void staffApi.list().then(setStaff);
-  }, []);
+    if (user) {
+      setClienteNombre(user.nombre ?? '');
+      setClienteGmail(user.email ?? '');
+    }
+  }, [user]);
+
+  useEffect(() => {
+    Promise.all([servicesApi.list(), staffApi.list()])
+      .then(([svcList, staffList]) => {
+        setServices(svcList);
+        setStaff(staffList);
+      })
+      .catch(() => showToast('Error al cargar datos. Recargá la página.', 'error'))
+      .finally(() => setLoadingData(false));
+  }, [showToast]);
 
   useEffect(() => {
     if (selectedStaff && selectedDate && selectedService) {
@@ -158,30 +173,38 @@ export function Booking() {
     }
   }, [selectedStaff, selectedDate, selectedService, showToast]);
 
+  const isGmailValid = clienteGmail.includes('@') && clienteGmail.includes('.');
+  const canConfirm =
+    clienteNombre.trim() !== '' &&
+    clienteApellido.trim() !== '' &&
+    isGmailValid;
+
   const handleBook = async () => {
     if (!selectedStaff || !selectedService || !selectedDate || !selectedSlot) return;
     setBooking(true);
     try {
-      if (isGuest) {
+      if (!user) {
         await appointmentsApi.guestBook({
-          nombre: guestNombre,
-          telefono: guestTelefono,
+          nombre: clienteNombre.trim(),
+          apellido: clienteApellido.trim(),
+          email: clienteGmail.trim(),
           staffId: selectedStaff.id,
           serviceId: selectedService.id,
           fecha: selectedDate,
           horaInicio: selectedSlot,
         });
-        setStep(5);
       } else {
         await appointmentsApi.book({
           staffId: selectedStaff.id,
           serviceId: selectedService.id,
           fecha: selectedDate,
           horaInicio: selectedSlot,
+          nombre: clienteNombre.trim(),
+          apellido: clienteApellido.trim(),
+          email: clienteGmail.trim(),
         });
-        showToast('¡Turno reservado exitosamente!', 'success');
-        navigate('/my-appointments');
       }
+      setStep(5);
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
       showToast(msg ?? 'Error al reservar', 'error');
@@ -193,27 +216,22 @@ export function Booking() {
   const days30 = getNext30Days();
   const todayStr = formatDate(new Date());
 
-  const stepLabels = isGuest
-    ? ['Profesional', 'Servicio', 'Horario', 'Contacto', 'Confirmación']
-    : ['Profesional', 'Servicio', 'Horario'];
+  const stepLabels = ['Profesional', 'Servicio', 'Horario', 'Datos'];
 
   const activeStaff = staff.filter((s) => s.activo);
   const activeServices = services.filter((s) => s.activo);
 
-  // Shared heading style
   const headingStyle: React.CSSProperties = {
     fontFamily: 'var(--font-serif)',
     letterSpacing: '-0.02em',
     lineHeight: 1.1,
   };
 
-  // Shared button styles
   const btnPrimary =
-    'px-8 py-2.5 bg-[#111111] text-white text-sm font-medium rounded-md hover:bg-[#333333] active:scale-[0.98] transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-2';
+    'w-full sm:w-auto px-8 py-3 sm:py-2.5 bg-[#111111] text-white text-sm font-medium rounded-md hover:bg-[#333333] active:scale-[0.98] transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2';
   const btnSecondary =
-    'px-6 py-2.5 border border-[#EAEAEA] text-[#111111] text-sm font-medium rounded-md hover:bg-white transition-all duration-200';
+    'w-full sm:w-auto px-6 py-3 sm:py-2.5 border border-[#EAEAEA] text-[#111111] text-sm font-medium rounded-md hover:bg-white transition-all duration-200 text-center';
 
-  // Summary rows for step 3 sidebar and step 5 card
   const summaryRows = [
     { label: 'Profesional', value: selectedStaff?.nombre },
     { label: 'Servicio', value: selectedService?.nombre },
@@ -224,7 +242,7 @@ export function Booking() {
 
   return (
     <BookingLayout>
-      <div className="max-w-4xl mx-auto px-4 py-10">
+      <div className="max-w-4xl mx-auto px-4 py-6 sm:py-10">
 
         {/* ── Step 5: Confirmación ────────────────────────────────────────── */}
         {step === 5 && (
@@ -240,7 +258,10 @@ export function Booking() {
                 Turno reservado
               </h1>
               <p className="text-[#787774] text-sm">
-                Te esperamos, {guestNombre}.
+                Te esperamos, {clienteNombre}.
+              </p>
+              <p className="text-[#787774] text-xs mt-1">
+                Enviamos la confirmación a <strong className="text-[#555]">{clienteGmail}</strong>
               </p>
             </div>
 
@@ -295,14 +316,18 @@ export function Booking() {
             {/* ── Step 1: Profesional ──────────────────────────────────────── */}
             {step === 1 && (
               <div className="step-entry space-y-6">
-                <h2 style={headingStyle} className="text-3xl text-[#111111]">
+                <h2 style={headingStyle} className="text-3xl text-[#111111] text-center">
                   Elegí tu profesional
                 </h2>
 
-                {activeStaff.length === 0 && staff.length === 0 ? (
+                {loadingData ? (
                   <div className="flex justify-center py-16">
                     <LoadingSpinner />
                   </div>
+                ) : activeStaff.length === 0 ? (
+                  <p className="text-center text-[#787774] text-sm py-10">
+                    No hay profesionales disponibles por el momento.
+                  </p>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {activeStaff.map((s, idx) => (
@@ -335,7 +360,7 @@ export function Booking() {
                   </div>
                 )}
 
-                <div className="pt-2">
+                <div className="pt-2 flex flex-col sm:flex-row gap-3">
                   <button
                     disabled={!selectedStaff}
                     onClick={() => setStep(2)}
@@ -350,14 +375,18 @@ export function Booking() {
             {/* ── Step 2: Servicio ─────────────────────────────────────────── */}
             {step === 2 && (
               <div className="step-entry space-y-6">
-                <h2 style={headingStyle} className="text-3xl text-[#111111]">
+                <h2 style={headingStyle} className="text-3xl text-[#111111] text-center">
                   ¿Qué servicio necesitás?
                 </h2>
 
-                {activeServices.length === 0 && services.length === 0 ? (
+                {loadingData ? (
                   <div className="flex justify-center py-16">
                     <LoadingSpinner />
                   </div>
+                ) : activeServices.length === 0 ? (
+                  <p className="text-center text-[#787774] text-sm py-10">
+                    No hay servicios disponibles por el momento.
+                  </p>
                 ) : (
                   <div className="space-y-3">
                     {activeServices.map((s, idx) => (
@@ -391,7 +420,7 @@ export function Booking() {
                   </div>
                 )}
 
-                <div className="flex gap-3 pt-2">
+                <div className="flex flex-col sm:flex-row gap-3 pt-2">
                   <button onClick={() => setStep(1)} className={btnSecondary}>
                     Volver
                   </button>
@@ -409,18 +438,18 @@ export function Booking() {
             {/* ── Step 3: Horario ──────────────────────────────────────────── */}
             {step === 3 && (
               <div className="step-entry">
-                <h2 style={headingStyle} className="text-3xl text-[#111111] mb-6">
+                <h2 style={headingStyle} className="text-3xl text-[#111111] mb-6 text-center sm:text-left">
                   Elegí día y horario
                 </h2>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-                  {/* Calendar + slots — left 2/3 */}
+                  {/* Calendar + slots */}
                   <div className="lg:col-span-2 space-y-6">
                     <div>
                       <p className="text-xs uppercase tracking-widest text-[#787774] font-medium mb-3">
                         Fecha
                       </p>
-                      <div className="grid grid-cols-7 gap-1.5">
+                      <div className="grid grid-cols-7 gap-1">
                         {days30.map((d) => {
                           const str = formatDate(d);
                           const isSelected = selectedDate === str;
@@ -429,7 +458,7 @@ export function Booking() {
                             <button
                               key={str}
                               onClick={() => setSelectedDate(str)}
-                              className={`py-2 rounded-md text-center transition-all duration-150 ${
+                              className={`py-2.5 sm:py-2 rounded-md text-center transition-all duration-150 ${
                                 isSelected
                                   ? 'bg-[#111111] text-white'
                                   : 'border border-[#EAEAEA] bg-white text-[#2F3437] hover:bg-[#F7F6F3]'
@@ -438,7 +467,7 @@ export function Booking() {
                               <div className={`text-[9px] leading-none mb-0.5 ${isSelected ? 'text-white/70' : 'text-[#787774]'}`}>
                                 {DAYS[d.getDay()]}
                               </div>
-                              <div className={`text-sm leading-none ${isToday && !isSelected ? 'font-bold' : 'font-medium'}`}>
+                              <div className={`text-xs sm:text-sm leading-none ${isToday && !isSelected ? 'font-bold' : 'font-medium'}`}>
                                 {d.getDate()}
                               </div>
                             </button>
@@ -466,7 +495,7 @@ export function Booking() {
                               <button
                                 key={slot}
                                 onClick={() => setSelectedSlot(slot)}
-                                className={`py-2.5 rounded-md text-sm font-medium transition-all duration-150 ${
+                                className={`py-3 sm:py-2.5 rounded-md text-sm font-medium transition-all duration-150 ${
                                   selectedSlot === slot
                                     ? 'bg-[#111111] text-white'
                                     : 'border border-[#EAEAEA] bg-white text-[#2F3437] hover:bg-[#F7F6F3]'
@@ -481,8 +510,8 @@ export function Booking() {
                     )}
                   </div>
 
-                  {/* Summary sidebar — right 1/3 */}
-                  <div className="lg:sticky lg:top-20">
+                  {/* Summary sidebar — solo desktop */}
+                  <div className="hidden lg:block lg:sticky lg:top-20">
                     <div className="border border-[#EAEAEA] rounded-xl bg-white overflow-hidden">
                       <div className="px-5 py-3.5 border-b border-[#EAEAEA]">
                         <p className="text-xs uppercase tracking-widest text-[#787774] font-medium">
@@ -506,77 +535,133 @@ export function Booking() {
                   </div>
                 </div>
 
-                <div className="flex gap-3 mt-8">
+                {/* Resumen compacto mobile */}
+                {(selectedDate || selectedSlot) && (
+                  <div className="lg:hidden mt-6 border border-[#EAEAEA] rounded-xl bg-white px-4 py-3 flex flex-wrap gap-x-5 gap-y-1">
+                    {selectedStaff && (
+                      <span className="text-xs text-[#555]">
+                        <span className="text-[#999]">Con </span>{selectedStaff.nombre}
+                      </span>
+                    )}
+                    {selectedService && (
+                      <span className="text-xs text-[#555]">
+                        <span className="text-[#999]">Servicio </span>{selectedService.nombre}
+                      </span>
+                    )}
+                    {selectedDate && (
+                      <span className="text-xs text-[#555] capitalize">
+                        <span className="text-[#999]">Fecha </span>{formatLongDate(selectedDate)}
+                      </span>
+                    )}
+                    {selectedSlot && (
+                      <span className="text-xs text-[#555]">
+                        <span className="text-[#999]">Hora </span>{selectedSlot}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                <div className="flex flex-col sm:flex-row gap-3 mt-6">
                   <button onClick={() => setStep(2)} className={btnSecondary}>
                     Volver
                   </button>
-                  {isGuest ? (
-                    <button
-                      disabled={!selectedDate || !selectedSlot}
-                      onClick={() => setStep(4)}
-                      className={btnPrimary}
-                    >
-                      Continuar
-                    </button>
-                  ) : (
-                    <button
-                      disabled={!selectedDate || !selectedSlot || booking}
-                      onClick={() => void handleBook()}
-                      className={btnPrimary}
-                    >
-                      {booking && <LoadingSpinner size="sm" />}
-                      Confirmar turno
-                    </button>
-                  )}
+                  <button
+                    disabled={!selectedDate || !selectedSlot}
+                    onClick={() => setStep(4)}
+                    className={btnPrimary}
+                  >
+                    Continuar
+                  </button>
                 </div>
               </div>
             )}
 
-            {/* ── Step 4: Contacto (guest only) ────────────────────────────── */}
-            {step === 4 && isGuest && (
+            {/* ── Step 4: Datos del cliente ─────────────────────────────────── */}
+            {step === 4 && (
               <div className="step-entry space-y-6 max-w-md">
                 <div>
                   <h2 style={headingStyle} className="text-3xl text-[#111111]">
-                    ¿Cómo te avisamos?
+                    Tus datos
                   </h2>
                   <p className="text-[#787774] text-sm mt-2">
-                    Solo para confirmarte el turno por WhatsApp.
+                    Completá tus datos para confirmar el turno y recibir la confirmación por email.
                   </p>
                 </div>
 
                 <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-[#111111] mb-1.5">
-                      Nombre completo
-                    </label>
-                    <input
-                      type="text"
-                      value={guestNombre}
-                      onChange={(e) => setGuestNombre(e.target.value)}
-                      placeholder="Tu nombre"
-                      className="w-full border border-[#EAEAEA] rounded-md px-4 py-2.5 text-[#111111] text-sm placeholder-[#BDBDBD] bg-white focus:outline-none focus:border-[#111111] transition-colors duration-150"
-                    />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-[#111111] mb-1.5">
+                        Nombre
+                      </label>
+                      <input
+                        type="text"
+                        value={clienteNombre}
+                        onChange={(e) => setClienteNombre(e.target.value)}
+                        placeholder="Juan"
+                        className="w-full border border-[#EAEAEA] rounded-md px-4 py-2.5 text-[#111111] text-sm placeholder-[#BDBDBD] bg-white focus:outline-none focus:border-[#111111] transition-colors duration-150"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-[#111111] mb-1.5">
+                        Apellido
+                      </label>
+                      <input
+                        type="text"
+                        value={clienteApellido}
+                        onChange={(e) => setClienteApellido(e.target.value)}
+                        placeholder="García"
+                        className="w-full border border-[#EAEAEA] rounded-md px-4 py-2.5 text-[#111111] text-sm placeholder-[#BDBDBD] bg-white focus:outline-none focus:border-[#111111] transition-colors duration-150"
+                      />
+                    </div>
                   </div>
+
                   <div>
                     <label className="block text-sm font-medium text-[#111111] mb-1.5">
-                      Teléfono / WhatsApp
+                      Gmail / Email
                     </label>
                     <input
-                      type="tel"
-                      value={guestTelefono}
-                      onChange={(e) => setGuestTelefono(e.target.value)}
-                      placeholder="3585 000000"
-                      className="w-full border border-[#EAEAEA] rounded-md px-4 py-2.5 text-[#111111] text-sm placeholder-[#BDBDBD] bg-white focus:outline-none focus:border-[#111111] transition-colors duration-150"
+                      type="email"
+                      value={clienteGmail}
+                      onChange={(e) => setClienteGmail(e.target.value)}
+                      placeholder="juan@gmail.com"
+                      className={`w-full border rounded-md px-4 py-2.5 text-[#111111] text-sm placeholder-[#BDBDBD] bg-white focus:outline-none transition-colors duration-150 ${
+                        clienteGmail && !isGmailValid
+                          ? 'border-red-300 focus:border-red-400'
+                          : 'border-[#EAEAEA] focus:border-[#111111]'
+                      }`}
                     />
+                    {clienteGmail && !isGmailValid && (
+                      <p className="text-red-500 text-xs mt-1">
+                        Ingresá un email válido (debe contener @ y .)
+                      </p>
+                    )}
                   </div>
                 </div>
 
-                <div className="flex gap-3 pt-2">
+                {/* Mini resumen */}
+                <div className="border border-[#EAEAEA] rounded-xl bg-white overflow-hidden">
+                  {summaryRows.map((row, i) => (
+                    <div
+                      key={row.label}
+                      className={`flex justify-between items-center px-5 py-3 ${
+                        i < summaryRows.length - 1 ? 'border-b border-[#EAEAEA]' : ''
+                      }`}
+                    >
+                      <span className="text-xs text-[#787774]">{row.label}</span>
+                      <span className="text-xs font-medium text-[#111111] text-right max-w-[56%] truncate">
+                        {row.value ?? <span className="text-[#BDBDBD]">—</span>}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-3 pt-2">
                   <button onClick={() => setStep(3)} className={btnSecondary}>
                     Volver
                   </button>
                   <button
-                    disabled={!guestNombre.trim() || !guestTelefono.trim() || booking}
+                    disabled={!canConfirm || booking}
                     onClick={() => void handleBook()}
                     className={btnPrimary}
                   >

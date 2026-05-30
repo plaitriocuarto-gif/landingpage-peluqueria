@@ -1,5 +1,5 @@
 import React, { ReactNode } from 'react';
-import { Navbar, BookingNavbar } from './Navbar';
+import { Navbar, AdminNavbar, BookingNavbar } from './Navbar';
 import { Sidebar } from './Sidebar';
 import { ToastContainer } from '../ui/Toast';
 
@@ -23,11 +23,11 @@ interface AdminLayoutProps {
 
 export function AdminLayout({ children }: AdminLayoutProps) {
   return (
-    <div className="min-h-screen bg-gray-900 text-gray-100 flex">
+    <div className="min-h-screen bg-[#F7F6F3] text-[#111111] flex">
       <Sidebar role="admin" />
       <div className="flex-1 flex flex-col overflow-hidden">
-        <Navbar />
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
+        <AdminNavbar />
+        <main className="flex-1 overflow-y-auto p-8">{children}</main>
       </div>
       <ToastContainer />
     </div>

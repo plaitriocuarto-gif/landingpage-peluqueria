@@ -12,12 +12,20 @@ export const appointmentsApi = {
   getMyAppointments: () =>
     apiClient.get<Appointment[]>('/appointments/my').then((r) => r.data),
 
-  book: (data: { staffId: number; serviceId: number; fecha: string; horaInicio: string }) =>
-    apiClient.post<Appointment>('/appointments', data).then((r) => r.data),
+  book: (data: {
+    staffId: number;
+    serviceId: number;
+    fecha: string;
+    horaInicio: string;
+    nombre: string;
+    apellido: string;
+    email: string;
+  }) => apiClient.post<Appointment>('/appointments', data).then((r) => r.data),
 
   guestBook: (data: {
     nombre: string;
-    telefono: string;
+    apellido: string;
+    email: string;
     staffId: number;
     serviceId: number;
     fecha: string;
@@ -27,7 +35,7 @@ export const appointmentsApi = {
   cancel: (id: number) =>
     apiClient.delete(`/appointments/${id}`).then((r) => r.data),
 
-  getAll: (filters?: { fecha?: string; staffId?: number; estado?: string }) =>
+  getAll: (filters?: { fecha?: string; fechaInicio?: string; fechaFin?: string; staffId?: number; estado?: string }) =>
     apiClient.get<Appointment[]>('/appointments', { params: filters }).then((r) => r.data),
 
   updateStatus: (id: number, estado: string) =>

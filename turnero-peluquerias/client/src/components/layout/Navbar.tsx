@@ -4,6 +4,35 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useConfig } from '../../contexts/ConfigContext';
 import { Button } from '../ui/Button';
 
+export function AdminNavbar() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logout();
+    navigate('/');
+  };
+
+  return (
+    <header className="bg-white border-b border-[#EAEAEA] h-14 flex items-center px-8 flex-shrink-0">
+      <div className="flex-1" />
+      <div className="flex items-center gap-4">
+        {user && (
+          <>
+            <span className="text-sm text-[#888]">{user.nombre}</span>
+            <button
+              onClick={handleLogout}
+              className="text-sm text-[#111] hover:text-[#555] transition-colors"
+            >
+              Cerrar sesión
+            </button>
+          </>
+        )}
+      </div>
+    </header>
+  );
+}
+
 export function BookingNavbar() {
   const { config } = useConfig();
   return (

@@ -2,7 +2,7 @@ import { Resend } from 'resend';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-const FROM_EMAIL = 'PLaiT <noreply@plait.agency>';
+const FROM_EMAIL = 'onboarding@resend.dev';
 const BRAND_COLOR = '#0D215B';
 
 function baseTemplate(content: string): string {

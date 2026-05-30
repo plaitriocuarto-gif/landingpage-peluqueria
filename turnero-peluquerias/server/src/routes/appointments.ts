@@ -115,12 +115,18 @@ router.get('/available', async (req: Request, res: Response) => {
 
 // Reserva de invitado (sin cuenta)
 router.post('/guest', async (req: Request, res: Response) => {
-  const { nombre, telefono, staffId, serviceId, fecha, horaInicio } = req.body as {
-    nombre: string; telefono: string; staffId: number; serviceId: number; fecha: string; horaInicio: string;
+  const { nombre, apellido, email, staffId, serviceId, fecha, horaInicio } = req.body as {
+    nombre: string; apellido: string; email: string;
+    staffId: number; serviceId: number; fecha: string; horaInicio: string;
   };
 
-  if (!nombre?.trim() || !staffId || !serviceId || !fecha || !horaInicio) {
-    res.status(400).json({ error: 'nombre, staffId, serviceId, fecha y horaInicio son requeridos' });
+  if (!nombre?.trim() || !apellido?.trim() || !email?.trim() || !staffId || !serviceId || !fecha || !horaInicio) {
+    res.status(400).json({ error: 'nombre, apellido, email, staffId, serviceId, fecha y horaInicio son requeridos' });
+    return;
+  }
+
+  if (!email.includes('@') || !email.includes('.')) {
+    res.status(400).json({ error: 'El email no es válido' });
     return;
   }
 
@@ -147,12 +153,18 @@ router.post('/guest', async (req: Request, res: Response) => {
 
   if (conflict) { res.status(409).json({ error: 'El horario ya está reservado' }); return; }
 
+  const { data: staffRow } = await supabaseAdmin
+    .from('staff')
+    .select('nombre')
+    .eq('id', Number(staffId))
+    .maybeSingle();
+
   const { data: newAppt, error } = await supabaseAdmin
     .from('appointments')
     .insert({
       client_id: null,
-      guest_nombre: nombre.trim(),
-      guest_telefono: telefono?.trim() ?? null,
+      guest_nombre: `${nombre.trim()} ${apellido.trim()}`,
+      guest_email: email.trim(),
       staff_id: Number(staffId),
       service_id: Number(serviceId),
       fecha,
@@ -167,25 +179,23 @@ router.post('/guest', async (req: Request, res: Response) => {
 
   const appt = flattenAppointment(newAppt);
 
-  console.log(`[Appointments] Reserva invitado: ${nombre} | ${fecha} ${horaInicio} | ${appt.service_nombre}`);
+  console.log(`[Appointments] Reserva invitado: ${nombre} ${apellido} | ${fecha} ${horaInicio} | ${appt.service_nombre}`);
 
-  if (nombre.includes('@')) {
-    try {
-      const { data: configRows } = await supabaseAdmin.from('shop_config').select('key, value');
-      const shopName = configRows?.find((r) => r.key === 'nombre')?.value ?? 'Peluquería';
-      await sendConfirmacion({
-        clienteEmail: nombre,
-        clienteNombre: nombre,
-        fecha,
-        hora_inicio: horaInicio,
-        servicio: appt.service_nombre ?? '',
-        profesional: appt.staff_nombre ?? '',
-        peluqueria: shopName,
-        precio: appt.service_precio ?? 0,
-      });
-    } catch (err) {
-      console.warn('[Appointments] No se pudo enviar email de confirmación:', err);
-    }
+  try {
+    const { data: configRows } = await supabaseAdmin.from('shop_config').select('key, value');
+    const shopName = configRows?.find((r: { key: string; value: string }) => r.key === 'nombre')?.value ?? 'Peluquería';
+    await sendConfirmacion({
+      clienteEmail: email.trim(),
+      clienteNombre: `${nombre.trim()} ${apellido.trim()}`,
+      fecha,
+      hora_inicio: horaInicio,
+      servicio: appt.service_nombre ?? service.nombre,
+      profesional: appt.staff_nombre ?? staffRow?.nombre ?? '',
+      peluqueria: shopName,
+      precio: appt.service_precio ?? service.precio,
+    });
+  } catch (err) {
+    console.warn('[Appointments] No se pudo enviar email de confirmación:', err);
   }
 
   res.status(201).json(appt);
@@ -193,8 +203,9 @@ router.post('/guest', async (req: Request, res: Response) => {
 
 // Reserva autenticada
 router.post('/', requireAuth, async (req: Request, res: Response) => {
-  const { staffId, serviceId, fecha, horaInicio } = req.body as {
+  const { staffId, serviceId, fecha, horaInicio, nombre, apellido, email } = req.body as {
     staffId: number; serviceId: number; fecha: string; horaInicio: string;
+    nombre?: string; apellido?: string; email?: string;
   };
 
   if (!staffId || !serviceId || !fecha || !horaInicio) {
@@ -204,7 +215,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
 
   const { data: service } = await supabaseAdmin
     .from('services')
-    .select('duracion_minutos')
+    .select('duracion_minutos, nombre, precio')
     .eq('id', Number(serviceId))
     .eq('activo', 1)
     .maybeSingle();
@@ -236,12 +247,33 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       hora_fin: horaFin,
       estado: 'pendiente',
     })
-    .select(`*, staff:staff_id(nombre), services:service_id(nombre)`)
+    .select(`*, staff:staff_id(nombre), services:service_id(nombre, precio)`)
     .single();
 
   if (error || !newAppt) { res.status(500).json({ error: 'Error al crear el turno' }); return; }
 
-  res.status(201).json(flattenAppointment(newAppt));
+  const apptAuth = flattenAppointment(newAppt);
+
+  if (email?.includes('@')) {
+    try {
+      const { data: configRows } = await supabaseAdmin.from('shop_config').select('key, value');
+      const shopName = configRows?.find((r: { key: string; value: string }) => r.key === 'nombre')?.value ?? 'Peluquería';
+      await sendConfirmacion({
+        clienteEmail: email,
+        clienteNombre: nombre ? `${nombre} ${apellido ?? ''}`.trim() : 'Cliente',
+        fecha,
+        hora_inicio: horaInicio,
+        servicio: apptAuth.service_nombre ?? service.nombre,
+        profesional: apptAuth.staff_nombre ?? '',
+        peluqueria: shopName,
+        precio: apptAuth.service_precio ?? service.precio,
+      });
+    } catch (err) {
+      console.warn('[Appointments] No se pudo enviar email de confirmación:', err);
+    }
+  }
+
+  res.status(201).json(apptAuth);
 });
 
 // Mis turnos (cliente autenticado)
@@ -289,7 +321,9 @@ router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
 
 // Admin: todos los turnos con filtros
 router.get('/', requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
-  const { fecha, staffId, estado } = req.query as { fecha?: string; staffId?: string; estado?: string };
+  const { fecha, fechaInicio, fechaFin, staffId, estado } = req.query as {
+    fecha?: string; fechaInicio?: string; fechaFin?: string; staffId?: string; estado?: string;
+  };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let query: any = supabaseAdmin
@@ -297,6 +331,8 @@ router.get('/', requireAuth, requireRole('admin'), async (req: Request, res: Res
     .select(`*, users:client_id(nombre, email), staff:staff_id(nombre, avatar), services:service_id(nombre, precio)`);
 
   if (fecha) query = query.eq('fecha', fecha);
+  if (fechaInicio) query = query.gte('fecha', fechaInicio);
+  if (fechaFin) query = query.lte('fecha', fechaFin);
   if (staffId) query = query.eq('staff_id', Number(staffId));
   if (estado) query = query.eq('estado', estado);
 
