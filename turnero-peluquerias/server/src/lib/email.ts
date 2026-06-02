@@ -34,22 +34,37 @@ function baseTemplate(content: string): string {
 
           <!-- Header -->
           <tr>
-            <td style="background:${BRAND_COLOR};border-top:1px solid ${BRAND_COLOR};border-left:1px solid ${BRAND_COLOR};border-right:1px solid ${BRAND_COLOR};border-radius:12px 12px 0 0;padding:24px 32px;text-align:center;">
-              <svg xmlns="http://www.w3.org/2000/svg" width="120" height="112" viewBox="0 0 150 140" style="display:inline-block; vertical-align:middle;">
-                <g fill="#ffffff">
-                  <!-- L vertical stem -->
-                  <rect x="40" y="20" width="10" height="60" />
-                  <!-- L horizontal bar -->
-                  <rect x="50" y="70" width="20" height="10" />
-                  <!-- T horizontal crossbar -->
-                  <rect x="50" y="30" width="60" height="10" />
-                  <!-- T vertical stem -->
-                  <rect x="70" y="40" width="10" height="50" />
-                  <!-- Horizontal divider line -->
-                  <rect x="35" y="102" width="80" height="2.5" />
-                </g>
-                <text x="75" y="127" fill="#ffffff" font-size="20" font-family="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-weight="500" text-anchor="middle" letter-spacing="1">PLaiT</text>
-              </svg>
+            <td style="background:${BRAND_COLOR};border-radius:12px 12px 0 0;padding:28px 32px 22px;text-align:center;">
+              <table cellpadding="0" cellspacing="0" style="margin:0 auto;">
+                <tr>
+                  <td style="text-align:center;padding-bottom:10px;">
+                    <table cellpadding="0" cellspacing="0" style="margin:0 auto;">
+                      <tr>
+                        <td style="vertical-align:top;padding-right:1px;">
+                          <span style="color:#ffffff;font-size:64px;font-weight:100;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;line-height:1;">L</span>
+                        </td>
+                        <td style="vertical-align:top;padding-top:18px;">
+                          <span style="color:#ffffff;font-size:64px;font-weight:100;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;line-height:1;">T</span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:0 0 12px;text-align:center;">
+                    <table cellpadding="0" cellspacing="0" style="margin:0 auto;">
+                      <tr>
+                        <td width="88" style="border-top:3px solid rgba(255,255,255,0.95);font-size:0;line-height:0;">&nbsp;</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="text-align:center;">
+                    <span style="color:#ffffff;font-size:18px;font-weight:300;letter-spacing:5px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">PLaiT</span>
+                  </td>
+                </tr>
+              </table>
             </td>
           </tr>
 
