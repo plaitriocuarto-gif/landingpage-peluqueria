@@ -35,6 +35,8 @@ app.get('/api/health', (_req, res) => {
       supabase_key: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
       jwt_secret: !!process.env.JWT_SECRET,
       clerk_key: !!process.env.CLERK_SECRET_KEY,
+      resend_key: !!process.env.RESEND_API_KEY,
+      resend_from: process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev',
     },
   });
 });

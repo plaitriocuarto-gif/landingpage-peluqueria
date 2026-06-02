@@ -2,8 +2,20 @@ import { Resend } from 'resend';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
-const FROM_EMAIL = 'onboarding@resend.dev';
+const FROM_EMAIL = process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev';
 const BRAND_COLOR = '#0D215B';
+
+function svg(paths: string): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
+}
+
+const ICON = {
+  calendar: svg('<rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>'),
+  clock:    svg('<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>'),
+  scissors: svg('<circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/>'),
+  user:     svg('<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>'),
+  dollar:   svg('<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>'),
+};
 
 function baseTemplate(content: string): string {
   return `
@@ -22,13 +34,37 @@ function baseTemplate(content: string): string {
 
           <!-- Header -->
           <tr>
-            <td style="background:${BRAND_COLOR};border-radius:12px 12px 0 0;padding:28px 32px;text-align:center;">
-              <div style="display:inline-flex;align-items:center;gap:10px;">
-                <div style="width:36px;height:36px;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.2);border-radius:8px;display:inline-flex;align-items:center;justify-content:center;">
-                  <span style="color:#fff;font-weight:900;font-size:13px;letter-spacing:-0.5px;">PL</span>
-                </div>
-                <span style="color:rgba(255,255,255,0.55);font-size:13px;font-weight:600;letter-spacing:3px;text-transform:uppercase;">PLaiT</span>
-              </div>
+            <td style="background:${BRAND_COLOR};border-radius:12px 12px 0 0;padding:28px 32px 22px;text-align:center;">
+              <table cellpadding="0" cellspacing="0" style="margin:0 auto;">
+                <tr>
+                  <td style="text-align:center;padding-bottom:10px;">
+                    <table cellpadding="0" cellspacing="0" style="margin:0 auto;">
+                      <tr>
+                        <td style="vertical-align:top;padding-right:1px;">
+                          <span style="color:#ffffff;font-size:64px;font-weight:100;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;line-height:1;">L</span>
+                        </td>
+                        <td style="vertical-align:top;padding-top:18px;">
+                          <span style="color:#ffffff;font-size:64px;font-weight:100;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;line-height:1;">T</span>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding:0 0 12px;text-align:center;">
+                    <table cellpadding="0" cellspacing="0" style="margin:0 auto;">
+                      <tr>
+                        <td width="88" style="border-top:3px solid rgba(255,255,255,0.95);font-size:0;line-height:0;">&nbsp;</td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="text-align:center;">
+                    <span style="color:#ffffff;font-size:18px;font-weight:300;letter-spacing:5px;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;">PLaiT</span>
+                  </td>
+                </tr>
+              </table>
             </td>
           </tr>
 
@@ -38,8 +74,8 @@ function baseTemplate(content: string): string {
               ${content}
               <hr style="border:none;border-top:1px solid #eef0f5;margin:28px 0;">
               <p style="color:#aab0c0;font-size:12px;text-align:center;margin:0;">
-                PLaiT Agency · Sistema de turnos<br>
-                <a href="https://instagram.com/plait.agency" style="color:#aab0c0;">@plait.agency</a>
+                PLaiT Agency &bull; Sistema de turnos<br>
+                <a href="https://www.instagram.com/plait_ia/" style="color:#aab0c0;">@plait_ia</a>
               </p>
             </td>
           </tr>
@@ -53,31 +89,37 @@ function baseTemplate(content: string): string {
   `.trim();
 }
 
+function turnoRow(icon: string, label: string, value: string, last = false, priceRow = false): string {
+  const sep = last ? '' : 'border-bottom:1px solid #f0f1f3;';
+  const val = priceRow
+    ? `<strong style="color:#111827;font-size:16px;">${value}</strong>`
+    : `<span style="color:#111827;font-size:14px;font-weight:500;">${value}</span>`;
+  return `
+    <tr>
+      <td style="padding:13px 0;${sep}">
+        <table cellpadding="0" cellspacing="0"><tr>
+          <td style="vertical-align:middle;padding-right:8px;">${icon}</td>
+          <td style="color:#6b7280;font-size:14px;vertical-align:middle;">${label}</td>
+        </tr></table>
+      </td>
+      <td style="padding:13px 0;${sep}text-align:right;vertical-align:middle;">${val}</td>
+    </tr>`;
+}
+
 function turnoInfo(turno: TurnoEmail): string {
+  const hasPrice = !!turno.precio;
   return `
     <table width="100%" cellpadding="0" cellspacing="0"
-      style="background:#f8f9fc;border-radius:8px;border:1px solid #eef0f5;padding:18px 20px;margin:20px 0;">
-      <tr>
-        <td style="color:#6b7280;font-size:13px;padding:4px 0;">📅 Fecha</td>
-        <td style="color:#111827;font-size:13px;font-weight:600;text-align:right;">${turno.fecha}</td>
-      </tr>
-      <tr>
-        <td style="color:#6b7280;font-size:13px;padding:4px 0;">⏰ Horario</td>
-        <td style="color:#111827;font-size:13px;font-weight:600;text-align:right;">${turno.hora_inicio} hs</td>
-      </tr>
-      <tr>
-        <td style="color:#6b7280;font-size:13px;padding:4px 0;">✂️ Servicio</td>
-        <td style="color:#111827;font-size:13px;font-weight:600;text-align:right;">${turno.servicio}</td>
-      </tr>
-      <tr>
-        <td style="color:#6b7280;font-size:13px;padding:4px 0;">💇 Profesional</td>
-        <td style="color:#111827;font-size:13px;font-weight:600;text-align:right;">${turno.profesional}</td>
-      </tr>
-      ${turno.precio ? `
-      <tr>
-        <td style="color:#6b7280;font-size:13px;padding:4px 0;">💰 Precio</td>
-        <td style="color:${BRAND_COLOR};font-size:13px;font-weight:700;text-align:right;">$${turno.precio.toLocaleString('es-AR')}</td>
-      </tr>` : ''}
+      style="background:#f8f9fc;border-radius:10px;border:1px solid #eef0f5;margin:20px 0;">
+      <tr><td style="padding:4px 20px;">
+        <table width="100%" cellpadding="0" cellspacing="0">
+          ${turnoRow(ICON.calendar, 'Fecha',      turno.fecha)}
+          ${turnoRow(ICON.clock,    'Horario',     `${turno.hora_inicio} hs`)}
+          ${turnoRow(ICON.scissors, 'Servicio',    turno.servicio)}
+          ${turnoRow(ICON.user,     'Profesional', turno.profesional, !hasPrice)}
+          ${hasPrice ? turnoRow(ICON.dollar, 'Precio', `$${turno.precio!.toLocaleString('es-AR')}`, true, true) : ''}
+        </table>
+      </td></tr>
     </table>
   `;
 }
@@ -97,14 +139,23 @@ export async function sendConfirmacion(turno: TurnoEmail) {
   console.log(`[Resend] Enviando confirmación a ${turno.clienteEmail}`);
 
   const content = `
-    <h2 style="color:#111827;font-size:22px;font-weight:700;margin:0 0 8px;">¡Turno confirmado! ✅</h2>
-    <p style="color:#6b7280;font-size:15px;margin:0 0 4px;">
-      Hola <strong style="color:#111827;">${turno.clienteNombre}</strong>, tu turno en
-      <strong style="color:${BRAND_COLOR};">${turno.peluqueria}</strong> quedó reservado.
+    <table cellpadding="0" cellspacing="0" style="margin:0 0 14px;">
+      <tr>
+        <td style="vertical-align:middle;">
+          <span style="color:#111827;font-size:24px;font-weight:700;">¡Turno confirmado!</span>
+        </td>
+        <td style="vertical-align:middle;padding-left:12px;">
+          <span style="display:inline-block;background:#22c55e;color:#ffffff;font-size:13px;font-weight:600;padding:5px 14px;border-radius:20px;line-height:1.3;">&#10003; confirmed</span>
+        </td>
+      </tr>
+    </table>
+    <p style="color:#374151;font-size:15px;margin:0 0 4px;">
+      Hola <strong>${turno.clienteNombre}</strong>, tu turno en
+      <strong><em>${turno.peluqueria}</em></strong> quedó reservado.
     </p>
     ${turnoInfo(turno)}
-    <p style="color:#6b7280;font-size:13px;margin:0;">
-      Si necesitás cancelar tu turno, podés hacerlo desde la app con al menos 2 horas de anticipación.
+    <p style="color:#6b7280;font-size:13px;text-align:center;margin:0;">
+      En caso de no poder asistir, por favor cancelá tu turno desde la app con al menos 2 horas de anticipación.
     </p>
   `;
 
@@ -128,13 +179,13 @@ export async function sendRecordatorio(turno: TurnoEmail) {
   console.log(`[Resend] Enviando recordatorio a ${turno.clienteEmail}`);
 
   const content = `
-    <h2 style="color:#111827;font-size:22px;font-weight:700;margin:0 0 8px;">Recordatorio de turno 🔔</h2>
-    <p style="color:#6b7280;font-size:15px;margin:0 0 4px;">
-      Hola <strong style="color:#111827;">${turno.clienteNombre}</strong>, te recordamos que mañana tenés turno
-      en <strong style="color:${BRAND_COLOR};">${turno.peluqueria}</strong>.
+    <h2 style="color:#111827;font-size:24px;font-weight:700;margin:0 0 14px;">Recordatorio de turno</h2>
+    <p style="color:#374151;font-size:15px;margin:0 0 4px;">
+      Hola <strong>${turno.clienteNombre}</strong>, te recordamos que mañana tenés turno
+      en <strong><em>${turno.peluqueria}</em></strong>.
     </p>
     ${turnoInfo(turno)}
-    <p style="color:#6b7280;font-size:13px;margin:0;">
+    <p style="color:#6b7280;font-size:13px;text-align:center;margin:0;">
       ¡Te esperamos! Si no podés asistir, cancelá con anticipación.
     </p>
   `;
@@ -239,12 +290,12 @@ export async function sendCancelacion(turno: TurnoEmail) {
 
   const content = `
     <h2 style="color:#111827;font-size:22px;font-weight:700;margin:0 0 8px;">Turno cancelado ❌</h2>
-    <p style="color:#6b7280;font-size:15px;margin:0 0 4px;">
-      Hola <strong style="color:#111827;">${turno.clienteNombre}</strong>, tu turno en
-      <strong style="color:${BRAND_COLOR};">${turno.peluqueria}</strong> fue cancelado.
+    <p style="color:#374151;font-size:15px;margin:0 0 4px;">
+      Hola <strong>${turno.clienteNombre}</strong>, tu turno en
+      <strong><em>${turno.peluqueria}</em></strong> fue cancelado.
     </p>
     ${turnoInfo(turno)}
-    <p style="color:#6b7280;font-size:13px;margin:0;">
+    <p style="color:#6b7280;font-size:13px;text-align:center;margin:0;">
       Podés reservar un nuevo turno cuando quieras desde nuestra app.
     </p>
   `;
