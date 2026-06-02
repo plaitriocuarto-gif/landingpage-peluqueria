@@ -75,7 +75,7 @@ function baseTemplate(content: string): string {
               <hr style="border:none;border-top:1px solid #eef0f5;margin:28px 0;">
               <p style="color:#575f70;font-size:13px;text-align:center;margin:0;font-weight:500;">
                 PLaiT Agency &bull; Sistema de turnos<br>
-                <a href="https://plait.agency" style="color:${BRAND_COLOR};text-decoration:underline;font-weight:600;display:inline-block;margin-top:6px;">plait.agency</a>
+                <a href="https://www.instagram.com/plait_ia/" style="color:${BRAND_COLOR};text-decoration:underline;font-weight:600;display:inline-block;margin-top:6px;">@plait_ia</a>
               </p>
             </td>
           </tr>
@@ -144,7 +144,7 @@ export async function sendConfirmacion(turno: TurnoEmail) {
           <span style="color:#111827;font-size:26px;font-weight:700;font-family:Georgia,Cambria,'Times New Roman',Times,serif;line-height:1.2;">¡Turno confirmado!</span>
         </td>
         <td style="vertical-align:middle;padding-left:12px;">
-          <span style="display:inline-block;background:#58a36c;color:#ffffff;font-size:13px;font-weight:600;padding:4px 12px;border-radius:20px;line-height:1.3;white-space:nowrap;">&#10003; confirmed</span>
+          <span style="display:inline-block;background:#58a36c;color:#ffffff;font-size:13px;font-weight:600;padding:4px 12px;border-radius:20px;line-height:1.3;white-space:nowrap;">&#10003; Confirmado</span>
         </td>
       </tr>
     </table>
@@ -184,7 +184,7 @@ export async function sendRecordatorio(turno: TurnoEmail) {
           <span style="color:#111827;font-size:26px;font-weight:700;font-family:Georgia,Cambria,'Times New Roman',Times,serif;line-height:1.2;">Recordatorio de turno</span>
         </td>
         <td style="vertical-align:middle;padding-left:12px;">
-          <span style="display:inline-block;background:#58a36c;color:#ffffff;font-size:13px;font-weight:600;padding:4px 12px;border-radius:20px;line-height:1.3;white-space:nowrap;">&#10003; confirmed</span>
+          <span style="display:inline-block;background:#58a36c;color:#ffffff;font-size:13px;font-weight:600;padding:4px 12px;border-radius:20px;line-height:1.3;white-space:nowrap;">&#10003; Confirmado</span>
         </td>
       </tr>
     </table>
