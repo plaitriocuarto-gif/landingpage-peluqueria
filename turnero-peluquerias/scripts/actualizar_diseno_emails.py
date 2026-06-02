@@ -1,4 +1,8 @@
-import { Resend } from 'resend';
+import os
+
+email_path = r"c:\Users\tomas\Desktop\Plai Turnero-Landig\turnero-peluquerias\server\src\lib\email.ts"
+
+updated_code = """import { Resend } from 'resend';
 
 const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -317,3 +321,9 @@ export async function sendCancelacion(turno: TurnoEmail) {
   console.log('[Resend] Cancelación enviada. id:', data?.id);
   return data;
 }
+"""
+
+with open(email_path, "w", encoding="utf-8") as f:
+    f.write(updated_code)
+
+print("Email template updated successfully with SVG logo.")
