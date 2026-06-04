@@ -9,6 +9,7 @@ import appointmentsRouter from './routes/appointments';
 import configRouter from './routes/config';
 import paymentsRouter from './routes/payments';
 import registroRouter from './routes/registro';
+import { clerkInit } from './middleware/clerkAuth';
 
 const app = express();
 const PORT = process.env.PORT ?? 3001;
@@ -16,6 +17,7 @@ const PORT = process.env.PORT ?? 3001;
 // ── Middlewares globales ──────────────────────────────────────────────────────
 app.use(cors({ origin: process.env.VERCEL_URL ?? 'http://localhost:5173', credentials: true }));
 app.use(express.json());
+app.use(clerkInit);
 
 // ── Rutas ─────────────────────────────────────────────────────────────────────
 app.use('/api/auth', authRouter);

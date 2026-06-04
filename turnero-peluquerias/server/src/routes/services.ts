@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabase';
 import { requireAuth, requireRole } from '../middleware/auth';
+import { hybridAuth } from '../middleware/clerkAuth';
 
 const router = Router();
 
@@ -9,12 +10,12 @@ router.get('/', async (req: Request, res: Response) => {
   res.json(data ?? []);
 });
 
-router.get('/all', requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
+router.get('/all', hybridAuth, requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
   const { data } = await supabaseAdmin.from('services').select('*').order('nombre');
   res.json(data ?? []);
 });
 
-router.post('/', requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/', hybridAuth, requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
   const { nombre, duracion_minutos, precio } = req.body as { nombre: string; duracion_minutos: number; precio: number };
   if (!nombre || !duracion_minutos || precio === undefined) {
     res.status(400).json({ error: 'nombre, duracion_minutos y precio son requeridos' });
@@ -29,7 +30,7 @@ router.post('/', requireAuth, requireRole('admin'), async (req: Request, res: Re
   res.status(201).json(data);
 });
 
-router.put('/:id', requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
+router.put('/:id', hybridAuth, requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
   const { nombre, duracion_minutos, precio, activo } = req.body as {
     nombre?: string; duracion_minutos?: number; precio?: number; activo?: number;
   };
@@ -49,7 +50,7 @@ router.put('/:id', requireAuth, requireRole('admin'), async (req: Request, res: 
   res.json(data);
 });
 
-router.delete('/:id', requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
+router.delete('/:id', hybridAuth, requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
   const { data, error } = await supabaseAdmin
     .from('services')
     .update({ activo: 0 })

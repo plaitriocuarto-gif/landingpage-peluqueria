@@ -1,11 +1,20 @@
 import { Router, Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
+import rateLimit from 'express-rate-limit';
 import { supabaseAdmin } from '../lib/supabase';
 import { requireAuth } from '../middleware/auth';
 
 const router = Router();
 const JWT_SECRET = process.env.JWT_SECRET ?? 'dev_secret';
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { error: 'Demasiados intentos. Esperá 15 minutos.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 router.post('/register', async (req: Request, res: Response) => {
   const { email, password, nombre } = req.body as { email: string; password: string; nombre: string };
@@ -41,7 +50,7 @@ router.post('/register', async (req: Request, res: Response) => {
   res.status(201).json({ token, user: { id: user.id, email, nombre, rol: 'cliente' } });
 });
 
-router.post('/login', async (req: Request, res: Response) => {
+router.post('/login', loginLimiter, async (req: Request, res: Response) => {
   const { email, password } = req.body as { email: string; password: string };
 
   if (!email || !password) {

@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabase';
 import { requireAuth, requireRole } from '../middleware/auth';
+import { hybridAuth } from '../middleware/clerkAuth';
 import { sendConfirmacion } from '../lib/email';
 
 const router = Router();
@@ -320,7 +321,7 @@ router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
 });
 
 // Admin: todos los turnos con filtros
-router.get('/', requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
+router.get('/', hybridAuth, requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
   const { fecha, fechaInicio, fechaFin, staffId, estado } = req.query as {
     fecha?: string; fechaInicio?: string; fechaFin?: string; staffId?: string; estado?: string;
   };
@@ -343,7 +344,7 @@ router.get('/', requireAuth, requireRole('admin'), async (req: Request, res: Res
 });
 
 // Admin: actualizar estado de turno
-router.put('/:id/status', requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
+router.put('/:id/status', hybridAuth, requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
   const { estado } = req.body as { estado: string };
   const validStates = ['pendiente', 'confirmado', 'cancelado', 'completado'];
   if (!validStates.includes(estado)) { res.status(400).json({ error: 'Estado inválido' }); return; }

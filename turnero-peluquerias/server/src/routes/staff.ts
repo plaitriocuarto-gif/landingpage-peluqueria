@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabase';
 import { requireAuth, requireRole } from '../middleware/auth';
+import { hybridAuth } from '../middleware/clerkAuth';
 
 const router = Router();
 
@@ -9,12 +10,12 @@ router.get('/', async (req: Request, res: Response) => {
   res.json(data ?? []);
 });
 
-router.get('/all', requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
+router.get('/all', hybridAuth, requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
   const { data } = await supabaseAdmin.from('staff').select('*').order('nombre');
   res.json(data ?? []);
 });
 
-router.post('/', requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/', hybridAuth, requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
   const { nombre, avatar } = req.body as { nombre: string; avatar: string };
   if (!nombre) {
     res.status(400).json({ error: 'El nombre es requerido' });
@@ -29,7 +30,7 @@ router.post('/', requireAuth, requireRole('admin'), async (req: Request, res: Re
   res.status(201).json(data);
 });
 
-router.put('/:id', requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
+router.put('/:id', hybridAuth, requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
   const { nombre, avatar, activo } = req.body as { nombre?: string; avatar?: string; activo?: number };
   const id = Number(req.params.id);
 
@@ -46,7 +47,7 @@ router.put('/:id', requireAuth, requireRole('admin'), async (req: Request, res: 
   res.json(data);
 });
 
-router.delete('/:id', requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
+router.delete('/:id', hybridAuth, requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
   const { data, error } = await supabaseAdmin
     .from('staff')
     .update({ activo: 0 })
@@ -66,7 +67,7 @@ router.get('/:id/schedule', async (req: Request, res: Response) => {
   res.json({ schedules: schedules ?? [], exceptions: exceptions ?? [] });
 });
 
-router.put('/:id/schedule', requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
+router.put('/:id/schedule', hybridAuth, requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
   const staffId = Number(req.params.id);
   const { schedules } = req.body as {
     schedules: Array<{ dia_semana: number; hora_inicio: string; hora_fin: string; slot_minutos: number }>;
@@ -91,7 +92,7 @@ router.put('/:id/schedule', requireAuth, requireRole('admin'), async (req: Reque
   res.json(data ?? []);
 });
 
-router.post('/:id/exceptions', requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
+router.post('/:id/exceptions', hybridAuth, requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
   const staffId = Number(req.params.id);
   const { fecha, tipo, hora_inicio, hora_fin, motivo } = req.body as {
     fecha: string; tipo: 'libre' | 'horario_especial'; hora_inicio?: string; hora_fin?: string; motivo?: string;
@@ -109,7 +110,7 @@ router.post('/:id/exceptions', requireAuth, requireRole('admin'), async (req: Re
   res.status(201).json(data);
 });
 
-router.delete('/:id/exceptions/:exId', requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
+router.delete('/:id/exceptions/:exId', hybridAuth, requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
   const { data, error } = await supabaseAdmin
     .from('staff_exceptions')
     .delete()

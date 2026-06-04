@@ -5,6 +5,12 @@ import { JwtPayload } from '../types';
 const JWT_SECRET = process.env.JWT_SECRET ?? 'dev_secret';
 
 export function requireAuth(req: Request, res: Response, next: NextFunction): void {
+  // hybridAuth ya autenticó al usuario (admin via Clerk), no re-parsear el JWT
+  if (req.user) {
+    next();
+    return;
+  }
+
   const header = req.headers.authorization;
   if (!header?.startsWith('Bearer ')) {
     res.status(401).json({ error: 'Token requerido' });

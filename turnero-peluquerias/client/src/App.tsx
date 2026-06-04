@@ -1,5 +1,6 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
+import { useAuth as useClerkAuth } from '@clerk/react';
 import { useAuth } from './contexts/AuthContext';
 import { FullPageLoader } from './components/ui/LoadingSpinner';
 import { Landing } from './pages/Landing';
@@ -20,6 +21,15 @@ import { Config } from './pages/admin/Config';
 import { MySchedule } from './pages/staff/MySchedule';
 import { AdminLayout } from './components/layout/Layout';
 
+// Protege rutas de admin usando la sesión de Clerk
+function RequireClerkAuth({ children }: { children: React.ReactElement }) {
+  const { isSignedIn, isLoaded } = useClerkAuth();
+  if (!isLoaded) return <FullPageLoader />;
+  if (!isSignedIn) return <Navigate to="/acceso-admin" replace />;
+  return children;
+}
+
+// Protege rutas de staff/cliente usando el JWT propio
 function RequireAuth({
   children,
   roles,
@@ -89,9 +99,9 @@ export default function App() {
       <Route
         path="/admin/*"
         element={
-          <RequireAuth roles={['admin']}>
+          <RequireClerkAuth>
             <AdminRoutes />
-          </RequireAuth>
+          </RequireClerkAuth>
         }
       />
 

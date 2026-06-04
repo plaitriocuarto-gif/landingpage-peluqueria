@@ -1,45 +1,61 @@
 import { clerkMiddleware, requireAuth as clerkRequireAuth, getAuth } from '@clerk/express';
 import { Request, Response, NextFunction } from 'express';
+import { supabaseAdmin } from '../lib/supabase';
 
-/**
- * Inicializa Clerk en cada request.
- * Agrega req.auth con userId, sessionId, etc. si hay sesión activa.
- * No bloquea requests sin sesión (usar clerkAuth para eso).
- */
 export const clerkInit = process.env.CLERK_SECRET_KEY
   ? clerkMiddleware()
   : (_req: Request, _res: Response, next: NextFunction) => next();
 
-/**
- * Protege una ruta exigiendo sesión Clerk activa.
- * Devuelve 401 si el token es inválido o está ausente.
- * Usar en lugar de (o junto a) el JWT propio de la app.
- */
 export const clerkAuth = clerkRequireAuth();
 
-/**
- * Helper para obtener el userId de Clerk desde un handler.
- * Retorna null si no hay sesión activa.
- */
 export function getClerkUserId(req: Request): string | null {
   const auth = getAuth(req);
   return auth?.userId ?? null;
 }
 
 /**
- * Middleware combinado: acepta tokens Clerk O el JWT propio de la app.
- * Primero intenta Clerk, si falla busca el header Authorization Bearer.
- * Útil durante la migración gradual desde JWT a Clerk.
+ * Acepta tokens Clerk (admins) o JWT propio (staff/clientes).
+ * Si el request viene con sesión Clerk válida, busca el usuario admin
+ * en Supabase y setea req.user para que requireRole() funcione igual.
+ * Si no hay sesión Clerk, pasa al siguiente middleware (que debe ser requireAuth).
  */
-export function hybridAuth(req: Request, res: Response, next: NextFunction): void {
+export async function hybridAuth(req: Request, res: Response, next: NextFunction): Promise<void> {
   const auth = getAuth(req);
 
-  if (auth?.userId) {
-    console.log(`[Clerk] Request autenticada por Clerk. userId=${auth.userId}`);
+  if (!auth?.userId) {
     next();
     return;
   }
 
-  // Si no hay sesión Clerk, continúa hacia el middleware JWT existente
-  next();
+  try {
+    // Buscar el negocio por clerk_user_id para obtener el gmail del admin
+    const { data: negocio } = await supabaseAdmin
+      .from('negocios')
+      .select('gmail')
+      .eq('clerk_user_id', auth.userId)
+      .maybeSingle();
+
+    if (!negocio?.gmail) {
+      res.status(401).json({ error: 'Sesión Clerk válida pero negocio no encontrado' });
+      return;
+    }
+
+    // Buscar el usuario en la tabla users para obtener el id interno
+    const { data: user } = await supabaseAdmin
+      .from('users')
+      .select('id, email, nombre, rol')
+      .eq('email', negocio.gmail)
+      .maybeSingle();
+
+    if (!user) {
+      res.status(401).json({ error: 'Usuario admin no encontrado en el sistema' });
+      return;
+    }
+
+    req.user = { id: user.id as number, email: user.email as string, rol: user.rol as string };
+    next();
+  } catch (err) {
+    console.error('[hybridAuth] Error buscando usuario por Clerk ID:', err);
+    res.status(500).json({ error: 'Error interno de autenticación' });
+  }
 }

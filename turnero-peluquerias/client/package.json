@@ -8,6 +8,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@clerk/react": "^6.7.3",
     "@supabase/supabase-js": "^2.106.2",
     "axios": "^1.6.8",
     "date-fns": "^3.4.0",

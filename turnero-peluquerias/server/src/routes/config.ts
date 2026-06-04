@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { supabaseAdmin } from '../lib/supabase';
 import { requireAuth, requireRole } from '../middleware/auth';
+import { hybridAuth } from '../middleware/clerkAuth';
 
 const router = Router();
 
@@ -13,7 +14,7 @@ router.get('/', async (req: Request, res: Response) => {
   res.json(config);
 });
 
-router.put('/', requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
+router.put('/', hybridAuth, requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
   const updates = req.body as Record<string, string>;
   const allowed = ['nombre', 'logo', 'color', 'cancellation_hours', 'descripcion'];
 

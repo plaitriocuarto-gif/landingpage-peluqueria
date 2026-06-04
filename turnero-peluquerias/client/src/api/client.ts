@@ -6,8 +6,20 @@ const apiClient = axios.create({
   timeout: 10000,
 });
 
-apiClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+// Clerk llama a esta función para inyectar getToken() en el interceptor.
+// Se setea desde ClerkTokenSync en main.tsx una vez que Clerk está listo.
+let _getClerkToken: (() => Promise<string | null>) | null = null;
+
+export function setClerkTokenProvider(fn: (() => Promise<string | null>) | null) {
+  _getClerkToken = fn;
+}
+
+apiClient.interceptors.request.use(async (config) => {
+  // Prioridad: token de Clerk (admins) → JWT en localStorage (staff/clientes)
+  const token = _getClerkToken
+    ? await _getClerkToken()
+    : localStorage.getItem('token');
+
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useSignIn } from '@clerk/react';
 import { supabase } from '../lib/supabase';
 
 interface Negocio {
@@ -96,9 +97,9 @@ export function SlugAdmin() {
   const [notFound, setNotFound] = useState(false);
   const [view, setView]         = useState<'login' | 'forgot'>('login');
 
-  // Autenticación local (se delegará a Clerk en el flujo real)
-  const [email, setEmail]       = useState('');
-  const [password, setPassword] = useState('');
+  const { signIn, isLoaded: clerkLoaded } = useSignIn();
+  const [email, setEmail]         = useState('');
+  const [password, setPassword]   = useState('');
   const [authError, setAuthError] = useState('');
   const [authLoading, setAuthLoading] = useState(false);
 
@@ -120,26 +121,26 @@ export function SlugAdmin() {
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
+    if (!clerkLoaded || !signIn) return;
     setAuthError('');
     setAuthLoading(true);
     try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-      const data = await res.json() as { token?: string; user?: { rol: string }; error?: string };
-
-      if (!res.ok || !data.token) {
-        setAuthError(data.error ?? 'Credenciales incorrectas');
-        return;
+      const result = await signIn.create({ identifier: email, password });
+      if (result.status === 'complete') {
+        navigate('/admin');
+      } else {
+        setAuthError('No se pudo completar el inicio de sesión. Intentá de nuevo.');
       }
-
-      // Guardar el token JWT y redirigir al panel admin
-      localStorage.setItem('token', data.token);
-      navigate('/admin');
-    } catch {
-      setAuthError('Error de conexión. Intentá de nuevo.');
+    } catch (err: unknown) {
+      const clerkErr = err as { errors?: Array<{ message?: string; code?: string }> };
+      const msg = clerkErr?.errors?.[0]?.message;
+      if (clerkErr?.errors?.[0]?.code === 'form_password_incorrect') {
+        setAuthError('Contraseña incorrecta.');
+      } else if (clerkErr?.errors?.[0]?.code === 'form_identifier_not_found') {
+        setAuthError('No encontramos una cuenta con ese Gmail.');
+      } else {
+        setAuthError(msg ?? 'Error al iniciar sesión. Intentá de nuevo.');
+      }
     } finally {
       setAuthLoading(false);
     }
