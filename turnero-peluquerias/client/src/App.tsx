@@ -4,7 +4,6 @@ import { useAuth as useClerkAuth, AuthenticateWithRedirectCallback } from '@cler
 import { useAuth } from './contexts/AuthContext';
 import { FullPageLoader } from './components/ui/LoadingSpinner';
 import { Landing } from './pages/Landing';
-import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 import { Registro } from './pages/Registro';
 import { PagoExitoso } from './pages/PagoExitoso';
@@ -25,7 +24,7 @@ import { AdminLayout } from './components/layout/Layout';
 function RequireClerkAuth({ children }: { children: React.ReactElement }) {
   const { isSignedIn, isLoaded } = useClerkAuth();
   if (!isLoaded) return <FullPageLoader />;
-  if (!isSignedIn) return <Navigate to="/acceso-admin" replace />;
+  if (!isSignedIn) return <Navigate to="/" replace />;
   return children;
 }
 
@@ -75,12 +74,6 @@ export default function App() {
 
       {/* Página de éxito/pendiente después del pago en Mercado Pago */}
       <Route path="/pago-exitoso" element={<PagoExitoso />} />
-
-      {/* Ruta de login oculta para administradores internos */}
-      <Route path="/acceso-admin" element={<Login />} />
-
-      {/* Mantenemos /login como alias por compatibilidad interna */}
-      <Route path="/login" element={<Navigate to="/acceso-admin" replace />} />
 
       <Route path="/register" element={<Register />} />
 
