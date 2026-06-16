@@ -123,30 +123,33 @@ export function SlugAdmin() {
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
-    console.log('[handleLogin] Clic en Ingresar. signIn exists:', !!signIn);
-    if (!signIn) {
-      setAuthError('Error: El sistema de autenticación (Clerk) no ha cargado correctamente.');
-      return;
-    }
     setAuthError('');
     setAuthLoading(true);
     try {
-      const result = await signIn.create({ identifier: email, password });
-      if (result.status === 'complete') {
-        navigate('/admin');
+      // Clerk v6: create() retorna { error }, el status está en signIn.status
+      const { error: createError } = await signIn.create({ identifier: email, password });
+      if (createError) {
+        if (createError.code === 'form_password_incorrect') {
+          setAuthError('Contraseña incorrecta.');
+        } else if (createError.code === 'form_identifier_not_found') {
+          setAuthError('No encontramos una cuenta con ese Gmail.');
+        } else {
+          setAuthError(createError.message ?? 'Error al iniciar sesión. Intentá de nuevo.');
+        }
+        return;
+      }
+      if (signIn.status === 'complete') {
+        const { error: finalizeError } = await signIn.finalize();
+        if (!finalizeError) {
+          navigate('/admin');
+        } else {
+          setAuthError(finalizeError.message ?? 'Error al activar sesión.');
+        }
       } else {
         setAuthError('No se pudo completar el inicio de sesión. Intentá de nuevo.');
       }
-    } catch (err: unknown) {
-      const clerkErr = err as { errors?: Array<{ message?: string; code?: string }> };
-      const msg = clerkErr?.errors?.[0]?.message;
-      if (clerkErr?.errors?.[0]?.code === 'form_password_incorrect') {
-        setAuthError('Contraseña incorrecta.');
-      } else if (clerkErr?.errors?.[0]?.code === 'form_identifier_not_found') {
-        setAuthError('No encontramos una cuenta con ese Gmail.');
-      } else {
-        setAuthError(msg ?? 'Error al iniciar sesión. Intentá de nuevo.');
-      }
+    } catch {
+      setAuthError('Error inesperado. Intentá de nuevo.');
     } finally {
       setAuthLoading(false);
     }
@@ -260,11 +263,11 @@ export function SlugAdmin() {
               <button
                 type="button"
                 onClick={() => {
-                  if (!signIn) return;
-                  void signIn.authenticateWithRedirect({
+                  // Clerk v6: sso() reemplaza authenticateWithRedirect()
+                  void signIn.sso({
                     strategy: 'oauth_google',
-                    redirectUrl: '/sso-callback',
-                    redirectUrlComplete: '/admin',
+                    redirectUrl: `${window.location.origin}/admin`,
+                    redirectCallbackUrl: `${window.location.origin}/sso-callback`,
                   });
                 }}
                 className="w-full py-3 bg-white border border-[#EAEAEA] hover:bg-[#F7F6F3]
