@@ -2,7 +2,9 @@ import apiClient from './client';
 import { Service } from '../types';
 
 export const servicesApi = {
-  list: () => apiClient.get<Service[]>('/services').then((r) => r.data),
+  list: (negocioId?: string) =>
+    apiClient.get<Service[]>('/services', { params: negocioId ? { negocioId } : undefined }).then((r) => r.data),
+
   listAll: () => apiClient.get<Service[]>('/services/all').then((r) => r.data),
 
   create: (data: { nombre: string; duracion_minutos: number; precio: number }) =>

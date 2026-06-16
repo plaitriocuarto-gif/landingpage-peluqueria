@@ -5,13 +5,25 @@ import { hybridAuth } from '../middleware/clerkAuth';
 
 const router = Router();
 
+async function assertStaffOwnership(staffId: number, negocioId: string | undefined, res: Response): Promise<boolean> {
+  if (!negocioId) return true;
+  const { data } = await supabaseAdmin
+    .from('staff').select('id').eq('id', staffId).eq('negocio_id', negocioId).maybeSingle();
+  if (!data) { res.status(404).json({ error: 'Empleado no encontrado' }); return false; }
+  return true;
+}
+
 router.get('/', async (req: Request, res: Response) => {
-  const { data } = await supabaseAdmin.from('staff').select('*').eq('activo', 1).order('nombre');
+  const { negocioId } = req.query as { negocioId?: string };
+  const base = supabaseAdmin.from('staff').select('*').eq('activo', 1);
+  const { data } = await (negocioId ? base.eq('negocio_id', negocioId) : base).order('nombre');
   res.json(data ?? []);
 });
 
 router.get('/all', hybridAuth, requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
-  const { data } = await supabaseAdmin.from('staff').select('*').order('nombre');
+  const negocioId = req.user?.negocio_id;
+  const base = supabaseAdmin.from('staff').select('*');
+  const { data } = await (negocioId ? base.eq('negocio_id', negocioId) : base).order('nombre');
   res.json(data ?? []);
 });
 
@@ -23,7 +35,7 @@ router.post('/', hybridAuth, requireAuth, requireRole('admin'), async (req: Requ
   }
   const { data, error } = await supabaseAdmin
     .from('staff')
-    .insert({ nombre, avatar: avatar ?? '', activo: 1 })
+    .insert({ nombre, avatar: avatar ?? '', activo: 1, negocio_id: req.user?.negocio_id ?? null })
     .select()
     .single();
   if (error) { res.status(500).json({ error: error.message }); return; }
@@ -33,8 +45,10 @@ router.post('/', hybridAuth, requireAuth, requireRole('admin'), async (req: Requ
 router.put('/:id', hybridAuth, requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
   const { nombre, avatar, activo } = req.body as { nombre?: string; avatar?: string; activo?: number };
   const id = Number(req.params.id);
+  const negocioId = req.user?.negocio_id;
 
-  const { data: existing } = await supabaseAdmin.from('staff').select('id').eq('id', id).maybeSingle();
+  const existsBase = supabaseAdmin.from('staff').select('id').eq('id', id);
+  const { data: existing } = await (negocioId ? existsBase.eq('negocio_id', negocioId) : existsBase).maybeSingle();
   if (!existing) { res.status(404).json({ error: 'Empleado no encontrado' }); return; }
 
   const update: Record<string, unknown> = {};
@@ -48,12 +62,12 @@ router.put('/:id', hybridAuth, requireAuth, requireRole('admin'), async (req: Re
 });
 
 router.delete('/:id', hybridAuth, requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
-  const { data, error } = await supabaseAdmin
-    .from('staff')
-    .update({ activo: 0 })
-    .eq('id', Number(req.params.id))
-    .select()
-    .maybeSingle();
+  const id = Number(req.params.id);
+  const negocioId = req.user?.negocio_id;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let query: any = supabaseAdmin.from('staff').update({ activo: 0 }).eq('id', id);
+  if (negocioId) query = query.eq('negocio_id', negocioId);
+  const { data, error } = await query.select().maybeSingle();
   if (error || !data) { res.status(404).json({ error: 'Empleado no encontrado' }); return; }
   res.json({ message: 'Empleado desactivado' });
 });
@@ -76,6 +90,8 @@ router.put('/:id/schedule', hybridAuth, requireAuth, requireRole('admin'), async
     res.status(400).json({ error: 'schedules debe ser un array' });
     return;
   }
+
+  if (!(await assertStaffOwnership(staffId, req.user?.negocio_id, res))) return;
 
   for (const s of schedules) {
     if (s.hora_inicio && s.hora_fin) {
@@ -101,6 +117,9 @@ router.post('/:id/exceptions', hybridAuth, requireAuth, requireRole('admin'), as
     res.status(400).json({ error: 'fecha y tipo son requeridos' });
     return;
   }
+
+  if (!(await assertStaffOwnership(staffId, req.user?.negocio_id, res))) return;
+
   const { data, error } = await supabaseAdmin
     .from('staff_exceptions')
     .insert({ staff_id: staffId, fecha, tipo, hora_inicio: hora_inicio ?? null, hora_fin: hora_fin ?? null, motivo: motivo ?? null })
@@ -111,11 +130,15 @@ router.post('/:id/exceptions', hybridAuth, requireAuth, requireRole('admin'), as
 });
 
 router.delete('/:id/exceptions/:exId', hybridAuth, requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
+  const staffId = Number(req.params.id);
+
+  if (!(await assertStaffOwnership(staffId, req.user?.negocio_id, res))) return;
+
   const { data, error } = await supabaseAdmin
     .from('staff_exceptions')
     .delete()
     .eq('id', Number(req.params.exId))
-    .eq('staff_id', Number(req.params.id))
+    .eq('staff_id', staffId)
     .select()
     .maybeSingle();
   if (error || !data) { res.status(404).json({ error: 'Excepción no encontrada' }); return; }

@@ -106,8 +106,8 @@ router.post('/', async (req: Request, res: Response) => {
     return;
   }
 
-  if (!/^\d+$/.test(telefono)) {
-    res.status(400).json({ error: 'El teléfono solo debe contener números' });
+  if (!/^\+?\d+$/.test(telefono)) {
+    res.status(400).json({ error: 'El teléfono tiene un formato inválido' });
     return;
   }
 

@@ -55,3 +55,28 @@ CREATE INDEX IF NOT EXISTS idx_negocios_clerk
 -- Ejecutar en Supabase → SQL Editor
 -- ============================================================
 ALTER TABLE appointments ADD COLUMN IF NOT EXISTS guest_email TEXT;
+
+-- ============================================================
+-- Migración: multi-tenant — agregar negocio_id a todas las tablas
+-- Ejecutar en Supabase → SQL Editor
+-- IMPORTANTE: ejecutar DESPUÉS de que exista la tabla negocios
+-- ============================================================
+
+-- staff
+ALTER TABLE staff ADD COLUMN IF NOT EXISTS negocio_id UUID REFERENCES negocios(id);
+CREATE INDEX IF NOT EXISTS idx_staff_negocio ON staff(negocio_id);
+
+-- services
+ALTER TABLE services ADD COLUMN IF NOT EXISTS negocio_id UUID REFERENCES negocios(id);
+CREATE INDEX IF NOT EXISTS idx_services_negocio ON services(negocio_id);
+
+-- appointments
+ALTER TABLE appointments ADD COLUMN IF NOT EXISTS negocio_id UUID REFERENCES negocios(id);
+CREATE INDEX IF NOT EXISTS idx_appointments_negocio ON appointments(negocio_id);
+
+-- shop_config
+ALTER TABLE shop_config ADD COLUMN IF NOT EXISTS negocio_id UUID REFERENCES negocios(id);
+CREATE INDEX IF NOT EXISTS idx_shop_config_negocio ON shop_config(negocio_id);
+-- Índice único para upsert por (negocio_id, key) — solo cuando negocio_id no es NULL
+CREATE UNIQUE INDEX IF NOT EXISTS idx_shop_config_negocio_key
+  ON shop_config(negocio_id, key) WHERE negocio_id IS NOT NULL;

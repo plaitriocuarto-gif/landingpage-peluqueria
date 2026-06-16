@@ -32,21 +32,63 @@ function flattenAppointment(row: any) {
   };
 }
 
+async function fetchService(serviceId: number) {
+  const { data } = await supabaseAdmin
+    .from('services')
+    .select('duracion_minutos, nombre, precio')
+    .eq('id', serviceId)
+    .eq('activo', 1)
+    .maybeSingle();
+  return data as { duracion_minutos: number; nombre: string; precio: number } | null;
+}
+
+async function hasConflict(staffId: number, fecha: string, horaInicio: string, horaFin: string): Promise<boolean> {
+  const { data } = await supabaseAdmin
+    .from('appointments')
+    .select('id')
+    .eq('staff_id', staffId)
+    .eq('fecha', fecha)
+    .neq('estado', 'cancelado')
+    .lt('hora_inicio', horaFin)
+    .gt('hora_fin', horaInicio)
+    .maybeSingle();
+  return !!data;
+}
+
+async function getShopName(negocioId?: string): Promise<string> {
+  if (negocioId) {
+    const { data } = await supabaseAdmin
+      .from('negocios')
+      .select('nombre_negocio')
+      .eq('id', negocioId)
+      .maybeSingle();
+    if (data?.nombre_negocio) return data.nombre_negocio as string;
+  }
+  const { data: configRows } = await supabaseAdmin.from('shop_config').select('key, value').is('negocio_id', null);
+  return configRows?.find((r: { key: string; value: string }) => r.key === 'nombre')?.value ?? 'Peluquería';
+}
+
 router.get('/available', async (req: Request, res: Response) => {
-  const { staffId, date, serviceId } = req.query as { staffId: string; date: string; serviceId: string };
+  const { staffId, date, serviceId, negocioId } = req.query as {
+    staffId: string; date: string; serviceId: string; negocioId?: string;
+  };
 
   if (!staffId || !date || !serviceId) {
     res.status(400).json({ error: 'staffId, date y serviceId son requeridos' });
     return;
   }
 
-  const { data: service } = await supabaseAdmin
-    .from('services')
-    .select('duracion_minutos')
-    .eq('id', Number(serviceId))
-    .eq('activo', 1)
-    .maybeSingle();
+  if (negocioId) {
+    const { data: staffRow } = await supabaseAdmin
+      .from('staff')
+      .select('id')
+      .eq('id', Number(staffId))
+      .eq('negocio_id', negocioId)
+      .maybeSingle();
+    if (!staffRow) { res.json({ slots: [] }); return; }
+  }
 
+  const service = await fetchService(Number(serviceId));
   if (!service) { res.status(404).json({ error: 'Servicio no encontrado' }); return; }
 
   const dateObj = new Date(`${date}T12:00:00`);
@@ -114,11 +156,11 @@ router.get('/available', async (req: Request, res: Response) => {
   res.json({ slots });
 });
 
-// Reserva de invitado (sin cuenta)
 router.post('/guest', async (req: Request, res: Response) => {
-  const { nombre, apellido, email, staffId, serviceId, fecha, horaInicio } = req.body as {
+  const { nombre, apellido, email, staffId, serviceId, fecha, horaInicio, negocioId } = req.body as {
     nombre: string; apellido: string; email: string;
     staffId: number; serviceId: number; fecha: string; horaInicio: string;
+    negocioId?: string;
   };
 
   if (!nombre?.trim() || !apellido?.trim() || !email?.trim() || !staffId || !serviceId || !fecha || !horaInicio) {
@@ -131,34 +173,15 @@ router.post('/guest', async (req: Request, res: Response) => {
     return;
   }
 
-  const { data: service } = await supabaseAdmin
-    .from('services')
-    .select('duracion_minutos, nombre, precio')
-    .eq('id', Number(serviceId))
-    .eq('activo', 1)
-    .maybeSingle();
-
+  const service = await fetchService(Number(serviceId));
   if (!service) { res.status(404).json({ error: 'Servicio no encontrado' }); return; }
 
   const horaFin = minutesToTime(timeToMinutes(horaInicio) + service.duracion_minutos);
 
-  const { data: conflict } = await supabaseAdmin
-    .from('appointments')
-    .select('id')
-    .eq('staff_id', Number(staffId))
-    .eq('fecha', fecha)
-    .neq('estado', 'cancelado')
-    .lt('hora_inicio', horaFin)
-    .gt('hora_fin', horaInicio)
-    .maybeSingle();
-
-  if (conflict) { res.status(409).json({ error: 'El horario ya está reservado' }); return; }
-
-  const { data: staffRow } = await supabaseAdmin
-    .from('staff')
-    .select('nombre')
-    .eq('id', Number(staffId))
-    .maybeSingle();
+  if (await hasConflict(Number(staffId), fecha, horaInicio, horaFin)) {
+    res.status(409).json({ error: 'El horario ya está reservado' });
+    return;
+  }
 
   const { data: newAppt, error } = await supabaseAdmin
     .from('appointments')
@@ -172,6 +195,7 @@ router.post('/guest', async (req: Request, res: Response) => {
       hora_inicio: horaInicio,
       hora_fin: horaFin,
       estado: 'pendiente',
+      negocio_id: negocioId ?? null,
     })
     .select(`*, staff:staff_id(nombre, avatar), services:service_id(nombre, precio, duracion_minutos)`)
     .single();
@@ -179,19 +203,17 @@ router.post('/guest', async (req: Request, res: Response) => {
   if (error || !newAppt) { res.status(500).json({ error: 'Error al crear el turno' }); return; }
 
   const appt = flattenAppointment(newAppt);
-
   console.log(`[Appointments] Reserva invitado: ${nombre} ${apellido} | ${fecha} ${horaInicio} | ${appt.service_nombre}`);
 
   try {
-    const { data: configRows } = await supabaseAdmin.from('shop_config').select('key, value');
-    const shopName = configRows?.find((r: { key: string; value: string }) => r.key === 'nombre')?.value ?? 'Peluquería';
+    const shopName = await getShopName(negocioId);
     await sendConfirmacion({
       clienteEmail: email.trim(),
       clienteNombre: `${nombre.trim()} ${apellido.trim()}`,
       fecha,
       hora_inicio: horaInicio,
       servicio: appt.service_nombre ?? service.nombre,
-      profesional: appt.staff_nombre ?? staffRow?.nombre ?? '',
+      profesional: appt.staff_nombre ?? '',
       peluqueria: shopName,
       precio: appt.service_precio ?? service.precio,
     });
@@ -202,11 +224,10 @@ router.post('/guest', async (req: Request, res: Response) => {
   res.status(201).json(appt);
 });
 
-// Reserva autenticada
 router.post('/', requireAuth, async (req: Request, res: Response) => {
-  const { staffId, serviceId, fecha, horaInicio, nombre, apellido, email } = req.body as {
+  const { staffId, serviceId, fecha, horaInicio, nombre, apellido, email, negocioId } = req.body as {
     staffId: number; serviceId: number; fecha: string; horaInicio: string;
-    nombre?: string; apellido?: string; email?: string;
+    nombre?: string; apellido?: string; email?: string; negocioId?: string;
   };
 
   if (!staffId || !serviceId || !fecha || !horaInicio) {
@@ -214,28 +235,15 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
     return;
   }
 
-  const { data: service } = await supabaseAdmin
-    .from('services')
-    .select('duracion_minutos, nombre, precio')
-    .eq('id', Number(serviceId))
-    .eq('activo', 1)
-    .maybeSingle();
-
+  const service = await fetchService(Number(serviceId));
   if (!service) { res.status(404).json({ error: 'Servicio no encontrado' }); return; }
 
   const horaFin = minutesToTime(timeToMinutes(horaInicio) + service.duracion_minutos);
 
-  const { data: conflict } = await supabaseAdmin
-    .from('appointments')
-    .select('id')
-    .eq('staff_id', Number(staffId))
-    .eq('fecha', fecha)
-    .neq('estado', 'cancelado')
-    .lt('hora_inicio', horaFin)
-    .gt('hora_fin', horaInicio)
-    .maybeSingle();
-
-  if (conflict) { res.status(409).json({ error: 'El horario ya está reservado' }); return; }
+  if (await hasConflict(Number(staffId), fecha, horaInicio, horaFin)) {
+    res.status(409).json({ error: 'El horario ya está reservado' });
+    return;
+  }
 
   const { data: newAppt, error } = await supabaseAdmin
     .from('appointments')
@@ -247,37 +255,36 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
       hora_inicio: horaInicio,
       hora_fin: horaFin,
       estado: 'pendiente',
+      negocio_id: negocioId ?? null,
     })
     .select(`*, staff:staff_id(nombre), services:service_id(nombre, precio)`)
     .single();
 
   if (error || !newAppt) { res.status(500).json({ error: 'Error al crear el turno' }); return; }
 
-  const apptAuth = flattenAppointment(newAppt);
+  const appt = flattenAppointment(newAppt);
 
   if (email?.includes('@')) {
     try {
-      const { data: configRows } = await supabaseAdmin.from('shop_config').select('key, value');
-      const shopName = configRows?.find((r: { key: string; value: string }) => r.key === 'nombre')?.value ?? 'Peluquería';
+      const shopName = await getShopName(negocioId);
       await sendConfirmacion({
         clienteEmail: email,
         clienteNombre: nombre ? `${nombre} ${apellido ?? ''}`.trim() : 'Cliente',
         fecha,
         hora_inicio: horaInicio,
-        servicio: apptAuth.service_nombre ?? service.nombre,
-        profesional: apptAuth.staff_nombre ?? '',
+        servicio: appt.service_nombre ?? service.nombre,
+        profesional: appt.staff_nombre ?? '',
         peluqueria: shopName,
-        precio: apptAuth.service_precio ?? service.precio,
+        precio: appt.service_precio ?? service.precio,
       });
     } catch (err) {
       console.warn('[Appointments] No se pudo enviar email de confirmación:', err);
     }
   }
 
-  res.status(201).json(apptAuth);
+  res.status(201).json(appt);
 });
 
-// Mis turnos (cliente autenticado)
 router.get('/my', requireAuth, async (req: Request, res: Response) => {
   const { data } = await supabaseAdmin
     .from('appointments')
@@ -289,11 +296,10 @@ router.get('/my', requireAuth, async (req: Request, res: Response) => {
   res.json((data ?? []).map(flattenAppointment));
 });
 
-// Cancelar turno
 router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
   const { data: appointment } = await supabaseAdmin
     .from('appointments')
-    .select('fecha, hora_inicio, estado')
+    .select('fecha, hora_inicio, estado, negocio_id')
     .eq('id', Number(req.params.id))
     .eq('client_id', req.user!.id)
     .maybeSingle();
@@ -301,11 +307,15 @@ router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
   if (!appointment) { res.status(404).json({ error: 'Turno no encontrado' }); return; }
   if (appointment.estado === 'cancelado') { res.status(400).json({ error: 'El turno ya está cancelado' }); return; }
 
-  const { data: configRow } = await supabaseAdmin
-    .from('shop_config')
-    .select('value')
-    .eq('key', 'cancellation_hours')
-    .maybeSingle();
+  const negocioId = appointment.negocio_id as string | undefined;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let configQuery: any = supabaseAdmin.from('shop_config').select('value').eq('key', 'cancellation_hours');
+  if (negocioId) {
+    configQuery = configQuery.eq('negocio_id', negocioId);
+  } else {
+    configQuery = configQuery.is('negocio_id', null);
+  }
+  const { data: configRow } = await configQuery.maybeSingle();
 
   const cancelHours = Number(configRow?.value ?? 2);
   const appointmentDateTime = new Date(`${appointment.fecha}T${appointment.hora_inicio}:00`);
@@ -320,7 +330,6 @@ router.delete('/:id', requireAuth, async (req: Request, res: Response) => {
   res.json({ message: 'Turno cancelado exitosamente' });
 });
 
-// Admin: todos los turnos con filtros
 router.get('/', hybridAuth, requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
   const { fecha, fechaInicio, fechaFin, staffId, estado } = req.query as {
     fecha?: string; fechaInicio?: string; fechaFin?: string; staffId?: string; estado?: string;
@@ -331,6 +340,8 @@ router.get('/', hybridAuth, requireAuth, requireRole('admin'), async (req: Reque
     .from('appointments')
     .select(`*, users:client_id(nombre, email), staff:staff_id(nombre, avatar), services:service_id(nombre, precio)`);
 
+  const negocioId = req.user?.negocio_id;
+  if (negocioId) query = query.eq('negocio_id', negocioId);
   if (fecha) query = query.eq('fecha', fecha);
   if (fechaInicio) query = query.gte('fecha', fechaInicio);
   if (fechaFin) query = query.lte('fecha', fechaFin);
@@ -343,16 +354,20 @@ router.get('/', hybridAuth, requireAuth, requireRole('admin'), async (req: Reque
   res.json((data ?? []).map(flattenAppointment));
 });
 
-// Admin: actualizar estado de turno
 router.put('/:id/status', hybridAuth, requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
   const { estado } = req.body as { estado: string };
   const validStates = ['pendiente', 'confirmado', 'cancelado', 'completado'];
   if (!validStates.includes(estado)) { res.status(400).json({ error: 'Estado inválido' }); return; }
 
-  const { data, error } = await supabaseAdmin
+  const negocioId = req.user?.negocio_id;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let query: any = supabaseAdmin
     .from('appointments')
     .update({ estado })
-    .eq('id', Number(req.params.id))
+    .eq('id', Number(req.params.id));
+  if (negocioId) query = query.eq('negocio_id', negocioId);
+
+  const { data, error } = await query
     .select(`*, users:client_id(nombre), staff:staff_id(nombre), services:service_id(nombre)`)
     .maybeSingle();
 
@@ -360,7 +375,6 @@ router.put('/:id/status', hybridAuth, requireAuth, requireRole('admin'), async (
   res.json(flattenAppointment(data));
 });
 
-// Staff: ver su propia agenda
 router.get('/staff', requireAuth, requireRole('staff', 'admin'), async (req: Request, res: Response) => {
   const { semana } = req.query as { semana?: string };
 

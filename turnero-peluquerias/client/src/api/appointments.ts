@@ -2,10 +2,10 @@ import apiClient from './client';
 import { Appointment } from '../types';
 
 export const appointmentsApi = {
-  getAvailable: (staffId: number, date: string, serviceId: number) =>
+  getAvailable: (staffId: number, date: string, serviceId: number, negocioId?: string) =>
     apiClient
       .get<{ slots: string[] }>('/appointments/available', {
-        params: { staffId, date, serviceId },
+        params: { staffId, date, serviceId, ...(negocioId ? { negocioId } : {}) },
       })
       .then((r) => r.data),
 
@@ -20,6 +20,7 @@ export const appointmentsApi = {
     nombre: string;
     apellido: string;
     email: string;
+    negocioId?: string;
   }) => apiClient.post<Appointment>('/appointments', data).then((r) => r.data),
 
   guestBook: (data: {
@@ -30,6 +31,7 @@ export const appointmentsApi = {
     serviceId: number;
     fecha: string;
     horaInicio: string;
+    negocioId?: string;
   }) => apiClient.post<Appointment>('/appointments/guest', data).then((r) => r.data),
 
   cancel: (id: number) =>

@@ -1,6 +1,19 @@
 import React, { useState, useEffect, useRef, FormEvent } from 'react';
 import axios from 'axios';
 
+const COUNTRY_CODES = [
+  { code: '+54', flag: '🇦🇷', name: 'Argentina' },
+  { code: '+55', flag: '🇧🇷', name: 'Brasil' },
+  { code: '+56', flag: '🇨🇱', name: 'Chile' },
+  { code: '+598', flag: '🇺🇾', name: 'Uruguay' },
+  { code: '+595', flag: '🇵🇾', name: 'Paraguay' },
+  { code: '+591', flag: '🇧🇴', name: 'Bolivia' },
+  { code: '+51', flag: '🇵🇪', name: 'Perú' },
+  { code: '+57', flag: '🇨🇴', name: 'Colombia' },
+  { code: '+52', flag: '🇲🇽', name: 'México' },
+  { code: '+34', flag: '🇪🇸', name: 'España' },
+];
+
 const BRAND = '#0D215B';
 
 function toSlugPreview(text: string): string {
@@ -54,6 +67,7 @@ type SlugStatus = 'idle' | 'checking' | 'available' | 'taken' | 'error';
 export function Registro() {
   const [nombre, setNombre]               = useState('');
   const [apellido, setApellido]           = useState('');
+  const [phoneCode, setPhoneCode]         = useState('+54');
   const [telefono, setTelefono]           = useState('');
   const [gmail, setGmail]                 = useState('');
   const [nombreNegocio, setNombreNegocio] = useState('');
@@ -101,7 +115,7 @@ export function Registro() {
     if (!nombre.trim()) newErrors.nombre = 'Campo obligatorio';
     if (!apellido.trim()) newErrors.apellido = 'Campo obligatorio';
     if (!telefono.trim()) newErrors.telefono = 'Campo obligatorio';
-    else if (!/^\d+$/.test(telefono)) newErrors.telefono = 'Solo debe contener números';
+    else if (!/^\d+$/.test(telefono)) newErrors.telefono = 'Solo números, sin espacios ni guiones';
     if (!gmail.trim()) newErrors.gmail = 'Campo obligatorio';
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(gmail)) newErrors.gmail = 'Ingresá un Gmail válido';
     if (!nombreNegocio.trim()) newErrors.nombreNegocio = 'Campo obligatorio';
@@ -123,7 +137,7 @@ export function Registro() {
       const { data } = await axios.post<{ registroId: string; checkoutUrl: string }>('/api/registro', {
         nombre,
         apellido,
-        telefono,
+        telefono: `${phoneCode}${telefono}`,
         gmail,
         nombre_negocio: nombreNegocio,
       });
@@ -194,16 +208,36 @@ export function Registro() {
               />
             </div>
 
-            <Field
-              label="Teléfono"
-              type="tel"
-              value={telefono}
-              onChange={setTelefono}
-              placeholder="2664123456"
-              required
-              error={errors.telefono}
-              hint="Solo números, sin espacios ni guiones"
-            />
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1.5">Teléfono</label>
+              <div className="flex gap-2">
+                <select
+                  value={phoneCode}
+                  onChange={(e) => setPhoneCode(e.target.value)}
+                  className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-2.5 text-gray-100
+                    focus:outline-none focus:ring-2 focus:ring-violet-500 focus:border-transparent
+                    text-sm shrink-0"
+                >
+                  {COUNTRY_CODES.map((c) => (
+                    <option key={c.code} value={c.code}>
+                      {c.flag} {c.code}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="tel"
+                  value={telefono}
+                  onChange={(e) => setTelefono(e.target.value.replace(/\D/g, ''))}
+                  placeholder="3585006177"
+                  required
+                  className={`flex-1 bg-gray-700 border rounded-lg px-4 py-2.5 text-gray-100
+                    placeholder-gray-500 focus:outline-none focus:ring-2 focus:border-transparent transition-colors
+                    ${errors.telefono ? 'border-red-500 focus:ring-red-500' : 'border-gray-600 focus:ring-violet-500'}`}
+                />
+              </div>
+              {errors.telefono && <p className="mt-1 text-xs text-red-400">{errors.telefono}</p>}
+              {!errors.telefono && <p className="mt-1 text-xs text-gray-500">Sin el 0 inicial ni el 15</p>}
+            </div>
 
             <Field
               label="Gmail"

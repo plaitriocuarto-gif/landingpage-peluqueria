@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { Service, Staff } from '../types';
 import { servicesApi } from '../api/services';
 import { staffApi } from '../api/staff';
@@ -8,6 +8,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 import { LoadingSpinner } from '../components/ui/LoadingSpinner';
 import { BookingLayout } from '../components/layout/Layout';
+import { supabase } from '../lib/supabase';
 
 // Steps: 1=Profesional 2=Servicio 3=Horario 4=Datos 5=Confirmacion
 type Step = 1 | 2 | 3 | 4 | 5;
@@ -123,6 +124,10 @@ export function Booking() {
   const { user } = useAuth();
   const { showToast } = useToast();
   const navigate = useNavigate();
+  const { slug } = useParams<{ slug?: string }>();
+
+  const [negocioId, setNegocioId] = useState<string | undefined>(undefined);
+  const [negocioNombre, setNegocioNombre] = useState<string>('');
 
   const [step, setStep] = useState<Step>(1);
 
@@ -142,6 +147,23 @@ export function Booking() {
   const [loadingSlots, setLoadingSlots] = useState(false);
   const [booking, setBooking] = useState(false);
 
+  // Resolver slug → negocio_id
+  useEffect(() => {
+    if (!slug) return;
+    supabase
+      .from('negocios')
+      .select('id, nombre_negocio')
+      .eq('slug', slug)
+      .eq('estado', 'activo')
+      .single()
+      .then(({ data }) => {
+        if (data) {
+          setNegocioId(data.id as string);
+          setNegocioNombre(data.nombre_negocio as string);
+        }
+      });
+  }, [slug]);
+
   // Pre-fill contact fields for authenticated users
   useEffect(() => {
     if (user) {
@@ -151,14 +173,14 @@ export function Booking() {
   }, [user]);
 
   useEffect(() => {
-    Promise.all([servicesApi.list(), staffApi.list()])
+    Promise.all([servicesApi.list(negocioId), staffApi.list(negocioId)])
       .then(([svcList, staffList]) => {
         setServices(svcList);
         setStaff(staffList);
       })
       .catch(() => showToast('Error al cargar datos. Recargá la página.', 'error'))
       .finally(() => setLoadingData(false));
-  }, [showToast]);
+  }, [negocioId, showToast]);
 
   useEffect(() => {
     if (selectedStaff && selectedDate && selectedService) {
@@ -166,12 +188,12 @@ export function Booking() {
       setSlots([]);
       setSelectedSlot('');
       appointmentsApi
-        .getAvailable(selectedStaff.id, selectedDate, selectedService.id)
+        .getAvailable(selectedStaff.id, selectedDate, selectedService.id, negocioId)
         .then((data) => setSlots(data.slots))
         .catch(() => showToast('Error al cargar horarios', 'error'))
         .finally(() => setLoadingSlots(false));
     }
-  }, [selectedStaff, selectedDate, selectedService, showToast]);
+  }, [selectedStaff, selectedDate, selectedService, negocioId, showToast]);
 
   const isGmailValid = clienteGmail.includes('@') && clienteGmail.includes('.');
   const canConfirm =
@@ -192,6 +214,7 @@ export function Booking() {
           serviceId: selectedService.id,
           fecha: selectedDate,
           horaInicio: selectedSlot,
+          negocioId,
         });
       } else {
         await appointmentsApi.book({
@@ -202,6 +225,7 @@ export function Booking() {
           nombre: clienteNombre.trim(),
           apellido: clienteApellido.trim(),
           email: clienteGmail.trim(),
+          negocioId,
         });
       }
       setStep(5);
@@ -283,10 +307,10 @@ export function Booking() {
 
             <div className="flex flex-col sm:flex-row gap-3 w-full max-w-sm">
               <button
-                onClick={() => navigate('/')}
+                onClick={() => navigate(slug ? `/${slug}` : '/')}
                 className="flex-1 py-2.5 px-5 bg-[#111111] text-white text-sm font-medium rounded-md hover:bg-[#333333] active:scale-[0.98] transition-all duration-200"
               >
-                Volver al inicio
+                {slug ? `Volver a ${negocioNombre || slug}` : 'Volver al inicio'}
               </button>
               <button
                 onClick={() => {

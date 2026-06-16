@@ -28,10 +28,10 @@ export async function hybridAuth(req: Request, res: Response, next: NextFunction
   }
 
   try {
-    // Buscar el negocio por clerk_user_id para obtener el gmail del admin
+    // Buscar el negocio por clerk_user_id para obtener el gmail del admin y el negocio_id
     const { data: negocio } = await supabaseAdmin
       .from('negocios')
-      .select('gmail')
+      .select('id, gmail')
       .eq('clerk_user_id', auth.userId)
       .maybeSingle();
 
@@ -52,7 +52,12 @@ export async function hybridAuth(req: Request, res: Response, next: NextFunction
       return;
     }
 
-    req.user = { id: user.id as number, email: user.email as string, rol: user.rol as string };
+    req.user = {
+      id: user.id as number,
+      email: user.email as string,
+      rol: user.rol as string,
+      negocio_id: negocio.id as string,
+    };
     next();
   } catch (err) {
     console.error('[hybridAuth] Error buscando usuario por Clerk ID:', err);

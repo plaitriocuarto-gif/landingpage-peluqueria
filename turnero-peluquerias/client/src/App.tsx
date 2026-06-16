@@ -1,6 +1,6 @@
 import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
-import { useAuth as useClerkAuth } from '@clerk/react';
+import { useAuth as useClerkAuth, AuthenticateWithRedirectCallback } from '@clerk/react';
 import { useAuth } from './contexts/AuthContext';
 import { FullPageLoader } from './components/ui/LoadingSpinner';
 import { Landing } from './pages/Landing';
@@ -114,8 +114,12 @@ export default function App() {
         }
       />
 
+      {/* Callback de OAuth (Google, etc.) — Clerk redirige acá después de autenticar */}
+      <Route path="/sso-callback" element={<AuthenticateWithRedirectCallback />} />
+
       {/* Rutas dinámicas por slug — DEBEN ir después de las rutas específicas */}
       <Route path="/:slug/admin" element={<SlugAdmin />} />
+      <Route path="/:slug/book" element={<Booking />} />
       <Route path="/:slug" element={<SlugPublic />} />
 
       <Route path="*" element={<Navigate to="/" replace />} />

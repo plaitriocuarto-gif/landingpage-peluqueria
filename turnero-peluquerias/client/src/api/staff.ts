@@ -2,7 +2,9 @@ import apiClient from './client';
 import { Staff, StaffSchedule, StaffException } from '../types';
 
 export const staffApi = {
-  list: () => apiClient.get<Staff[]>('/staff').then((r) => r.data),
+  list: (negocioId?: string) =>
+    apiClient.get<Staff[]>('/staff', { params: negocioId ? { negocioId } : undefined }).then((r) => r.data),
+
   listAll: () => apiClient.get<Staff[]>('/staff/all').then((r) => r.data),
 
   create: (data: { nombre: string; avatar: string }) =>

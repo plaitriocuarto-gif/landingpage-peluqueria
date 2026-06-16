@@ -58,6 +58,7 @@ export interface JwtPayload {
   id: number;
   email: string;
   rol: string;
+  negocio_id?: string;
 }
 
 declare global {

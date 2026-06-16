@@ -6,12 +6,16 @@ import { hybridAuth } from '../middleware/clerkAuth';
 const router = Router();
 
 router.get('/', async (req: Request, res: Response) => {
-  const { data } = await supabaseAdmin.from('services').select('*').eq('activo', 1).order('nombre');
+  const { negocioId } = req.query as { negocioId?: string };
+  const base = supabaseAdmin.from('services').select('*').eq('activo', 1);
+  const { data } = await (negocioId ? base.eq('negocio_id', negocioId) : base).order('nombre');
   res.json(data ?? []);
 });
 
 router.get('/all', hybridAuth, requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
-  const { data } = await supabaseAdmin.from('services').select('*').order('nombre');
+  const negocioId = req.user?.negocio_id;
+  const base = supabaseAdmin.from('services').select('*');
+  const { data } = await (negocioId ? base.eq('negocio_id', negocioId) : base).order('nombre');
   res.json(data ?? []);
 });
 
@@ -23,7 +27,7 @@ router.post('/', hybridAuth, requireAuth, requireRole('admin'), async (req: Requ
   }
   const { data, error } = await supabaseAdmin
     .from('services')
-    .insert({ nombre, duracion_minutos, precio, activo: 1 })
+    .insert({ nombre, duracion_minutos, precio, activo: 1, negocio_id: req.user?.negocio_id ?? null })
     .select()
     .single();
   if (error) { res.status(500).json({ error: error.message }); return; }
@@ -35,8 +39,10 @@ router.put('/:id', hybridAuth, requireAuth, requireRole('admin'), async (req: Re
     nombre?: string; duracion_minutos?: number; precio?: number; activo?: number;
   };
   const id = Number(req.params.id);
+  const negocioId = req.user?.negocio_id;
 
-  const { data: existing } = await supabaseAdmin.from('services').select('id').eq('id', id).maybeSingle();
+  const existsBase = supabaseAdmin.from('services').select('id').eq('id', id);
+  const { data: existing } = await (negocioId ? existsBase.eq('negocio_id', negocioId) : existsBase).maybeSingle();
   if (!existing) { res.status(404).json({ error: 'Servicio no encontrado' }); return; }
 
   const update: Record<string, unknown> = {};
@@ -51,12 +57,12 @@ router.put('/:id', hybridAuth, requireAuth, requireRole('admin'), async (req: Re
 });
 
 router.delete('/:id', hybridAuth, requireAuth, requireRole('admin'), async (req: Request, res: Response) => {
-  const { data, error } = await supabaseAdmin
-    .from('services')
-    .update({ activo: 0 })
-    .eq('id', Number(req.params.id))
-    .select()
-    .maybeSingle();
+  const id = Number(req.params.id);
+  const negocioId = req.user?.negocio_id;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let query: any = supabaseAdmin.from('services').update({ activo: 0 }).eq('id', id);
+  if (negocioId) query = query.eq('negocio_id', negocioId);
+  const { data, error } = await query.select().maybeSingle();
   if (error || !data) { res.status(404).json({ error: 'Servicio no encontrado' }); return; }
   res.json({ message: 'Servicio desactivado' });
 });
