@@ -15,7 +15,28 @@ const app = express();
 const PORT = process.env.PORT ?? 3001;
 
 // ── Middlewares globales ──────────────────────────────────────────────────────
-app.use(cors({ origin: process.env.VERCEL_URL ?? 'http://localhost:5173', credentials: true }));
+const allowedOrigins = new Set(
+  [
+    'http://localhost:5173',
+    'http://localhost:5174',
+    process.env.BASE_URL,
+    // Vercel puede setear VERCEL_URL sin protocolo; normalizar
+    process.env.VERCEL_URL
+      ? process.env.VERCEL_URL.startsWith('http')
+        ? process.env.VERCEL_URL
+        : `https://${process.env.VERCEL_URL}`
+      : null,
+  ].filter(Boolean) as string[]
+);
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Same-origin o server-to-server: no hay header Origin → permitir
+    if (!origin || allowedOrigins.has(origin)) return callback(null, true);
+    callback(null, false);
+  },
+  credentials: true,
+}));
 app.use(express.json());
 app.use(clerkInit);
 

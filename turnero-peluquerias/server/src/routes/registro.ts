@@ -7,19 +7,17 @@ import { sendBienvenida } from '../lib/email';
 
 const router = Router();
 
-// ──────────────────────────────────────────────────────────────────────────────
-// HELPERS
-// ──────────────────────────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
 function toSlug(nombre: string): string {
   return nombre
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '') // quitar tildes/diacríticos
-    .replace(/[^a-z0-9\s-]/g, '')   // solo letras, números, guiones y espacios
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9\s-]/g, '')
     .trim()
-    .replace(/\s+/g, '-')           // espacios → guiones
-    .replace(/-+/g, '-');           // colapsar guiones dobles
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-');
 }
 
 function generatePassword(): string {
@@ -34,57 +32,37 @@ function generatePassword(): string {
   pwd += lower[Math.floor(Math.random() * lower.length)];
   pwd += digits[Math.floor(Math.random() * digits.length)];
   pwd += special[Math.floor(Math.random() * special.length)];
+  for (let i = 0; i < 6; i++) pwd += all[Math.floor(Math.random() * all.length)];
 
-  for (let i = 0; i < 6; i++) {
-    pwd += all[Math.floor(Math.random() * all.length)];
-  }
-
-  // Mezclar para que los obligatorios no queden siempre al principio
   return pwd.split('').sort(() => Math.random() - 0.5).join('');
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// GET /api/registro/check-slug?slug=la-barberia
-// Verifica si el slug está disponible (no tomado en negocios ni en pendientes)
-// ──────────────────────────────────────────────────────────────────────────────
+async function isSlugTaken(slug: string): Promise<boolean> {
+  const [{ data: negocio }, { data: pendiente }] = await Promise.all([
+    supabaseAdmin.from('negocios').select('id').eq('slug', slug).maybeSingle(),
+    supabaseAdmin.from('registros_pendientes').select('id').eq('slug', slug).eq('estado', 'pendiente_pago').maybeSingle(),
+  ]);
+  return !!(negocio || pendiente);
+}
+
+// ── GET /api/registro/check-slug?slug=la-barberia ────────────────────────────
 
 router.get('/check-slug', async (req: Request, res: Response) => {
   const { slug } = req.query as { slug?: string };
-
-  if (!slug) {
-    res.status(400).json({ error: 'slug requerido' });
-    return;
-  }
+  if (!slug) { res.status(400).json({ error: 'slug requerido' }); return; }
 
   const cleanSlug = toSlug(slug);
-
-  if (!cleanSlug) {
-    res.json({ available: false, slug: cleanSlug });
-    return;
-  }
+  if (!cleanSlug) { res.json({ available: false, slug: cleanSlug }); return; }
 
   try {
-    const [{ data: negocio }, { data: pendiente }] = await Promise.all([
-      supabaseAdmin.from('negocios').select('id').eq('slug', cleanSlug).maybeSingle(),
-      supabaseAdmin
-        .from('registros_pendientes')
-        .select('id')
-        .eq('slug', cleanSlug)
-        .eq('estado', 'pendiente_pago')
-        .maybeSingle(),
-    ]);
-
-    res.json({ available: !negocio && !pendiente, slug: cleanSlug });
+    res.json({ available: !(await isSlugTaken(cleanSlug)), slug: cleanSlug });
   } catch (err) {
     console.error('[Registro] Error verificando slug:', err);
     res.status(500).json({ error: 'Error verificando disponibilidad' });
   }
 });
 
-// ──────────────────────────────────────────────────────────────────────────────
-// POST /api/registro
-// Guarda el formulario pre-pago y redirige al checkout de Tienda Nube
-// ──────────────────────────────────────────────────────────────────────────────
+// ── POST /api/registro ───────────────────────────────────────────────────────
 
 router.post('/', async (req: Request, res: Response) => {
   const { nombre, apellido, telefono, gmail, nombre_negocio } = req.body as {
@@ -95,49 +73,28 @@ router.post('/', async (req: Request, res: Response) => {
     nombre_negocio: string;
   };
 
-  // Validaciones básicas
   if (!nombre?.trim() || !apellido?.trim() || !telefono?.trim() || !gmail?.trim() || !nombre_negocio?.trim()) {
     res.status(400).json({ error: 'Todos los campos son obligatorios' });
     return;
   }
-
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(gmail)) {
     res.status(400).json({ error: 'El Gmail no tiene formato válido' });
     return;
   }
-
   if (!/^\+?\d+$/.test(telefono)) {
     res.status(400).json({ error: 'El teléfono tiene un formato inválido' });
     return;
   }
 
   const slug = toSlug(nombre_negocio);
-  if (!slug) {
-    res.status(400).json({ error: 'Nombre de negocio inválido' });
-    return;
-  }
+  if (!slug) { res.status(400).json({ error: 'Nombre de negocio inválido' }); return; }
 
   try {
-    // Verificar que el slug no esté tomado
-    const [{ data: negocio }, { data: pendiente }] = await Promise.all([
-      supabaseAdmin.from('negocios').select('id').eq('slug', slug).maybeSingle(),
-      supabaseAdmin
-        .from('registros_pendientes')
-        .select('id')
-        .eq('slug', slug)
-        .eq('estado', 'pendiente_pago')
-        .maybeSingle(),
-    ]);
-
-    if (negocio || pendiente) {
-      res.status(409).json({
-        error: 'Ese nombre de negocio ya está en uso. Probá con una variación.',
-        slug,
-      });
+    if (await isSlugTaken(slug)) {
+      res.status(409).json({ error: 'Ese nombre de negocio ya está en uso. Probá con una variación.', slug });
       return;
     }
 
-    // Guardar en registros_pendientes
     const { data: registro, error: insertErr } = await supabaseAdmin
       .from('registros_pendientes')
       .insert({ nombre, apellido, telefono, gmail, nombre_negocio, slug, estado: 'pendiente_pago' })
@@ -148,7 +105,6 @@ router.post('/', async (req: Request, res: Response) => {
 
     console.log(`[Registro] Nuevo registro pendiente. id=${registro.id} slug=${slug}`);
 
-    // ── Crear preferencia de pago en Mercado Pago ────────────────────────────
     if (!process.env.MP_ACCESS_TOKEN) {
       console.error('[Registro] MP_ACCESS_TOKEN no configurado');
       res.status(500).json({ error: 'Sistema de pagos no configurado. Contactá a soporte.' });
@@ -163,7 +119,6 @@ router.post('/', async (req: Request, res: Response) => {
     });
 
     console.log(`[Registro] Preferencia MP creada → ${initPoint}`);
-
     res.json({ registroId: registro.id, checkoutUrl: initPoint });
   } catch (err) {
     console.error('[Registro] Error al procesar:', err);
@@ -171,51 +126,7 @@ router.post('/', async (req: Request, res: Response) => {
   }
 });
 
-// ──────────────────────────────────────────────────────────────────────────────
-// POST /api/registro/forgot-password
-// Inicia el flujo de reset de contraseña de Clerk
-// ──────────────────────────────────────────────────────────────────────────────
-
-router.post('/forgot-password', async (req: Request, res: Response) => {
-  const { email } = req.body as { email?: string };
-
-  if (!email) {
-    res.status(400).json({ error: 'Email requerido' });
-    return;
-  }
-
-  try {
-    const clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY });
-    const list = await clerk.users.getUserList({ emailAddress: [email] });
-
-    if (!list.data.length) {
-      res.status(404).json({ error: 'No encontramos una cuenta con ese Gmail' });
-      return;
-    }
-
-    // Clerk gestiona el envío del email de reset mediante su flujo nativo.
-    // Creamos un reset token via API de Clerk Backend.
-    const userId = list.data[0].id;
-
-    await fetch(`https://api.clerk.com/v1/users/${userId}/reset_password`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${process.env.CLERK_SECRET_KEY}`,
-        'Content-Type': 'application/json',
-      },
-    });
-
-    console.log(`[ForgotPassword] Reset de contraseña iniciado para userId=${userId}`);
-    res.json({ sent: true });
-  } catch (err) {
-    console.error('[ForgotPassword] Error:', err);
-    res.status(500).json({ error: 'Error al procesar la solicitud' });
-  }
-});
-
-// ──────────────────────────────────────────────────────────────────────────────
-// createBusinessAccount — llamado por el webhook cuando el pago se confirma
-// ──────────────────────────────────────────────────────────────────────────────
+// ── createBusinessAccount — llamado por el webhook cuando el pago se confirma ─
 
 export async function createBusinessAccount(registroId: string): Promise<void> {
   console.log(`[Cuenta] Iniciando creación de cuenta para registro ${registroId}`);
@@ -244,15 +155,15 @@ export async function createBusinessAccount(registroId: string): Promise<void> {
     nombre_negocio: string;
   };
 
-  const baseUrl = process.env.BASE_URL ?? 'https://turnosonlineplait.com';
+  const baseUrl    = process.env.BASE_URL ?? 'https://turnosonlineplait.com';
   const urlCliente = `${baseUrl}/${slug}`;
   const urlAdmin   = `${baseUrl}/${slug}/admin`;
   const password   = generatePassword();
+  const clerk      = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY });
 
   // a) Crear usuario en Clerk
   let clerkUserId: string | undefined;
   try {
-    const clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY });
     const clerkUser = await clerk.users.createUser({
       emailAddress: [gmail],
       password,
@@ -262,11 +173,9 @@ export async function createBusinessAccount(registroId: string): Promise<void> {
     clerkUserId = clerkUser.id;
     console.log(`[Cuenta] Usuario Clerk creado. clerkId=${clerkUserId}`);
   } catch (clerkErr: unknown) {
-    // Si el email ya existe en Clerk, continuamos y buscamos el id
     const errObj = clerkErr as { errors?: Array<{ code?: string }> };
     if (errObj?.errors?.[0]?.code === 'form_identifier_exists') {
       console.warn('[Cuenta] Email ya existe en Clerk, se vinculará el usuario existente.');
-      const clerk = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY });
       const list = await clerk.users.getUserList({ emailAddress: [gmail] });
       clerkUserId = list.data[0]?.id;
     } else {
@@ -275,7 +184,7 @@ export async function createBusinessAccount(registroId: string): Promise<void> {
     }
   }
 
-  // b.2) Crear usuario en Supabase para login JWT
+  // b) Crear usuario en Supabase para login JWT
   const { data: existingUser } = await supabaseAdmin
     .from('users')
     .select('id')
@@ -290,7 +199,7 @@ export async function createBusinessAccount(registroId: string): Promise<void> {
     console.log(`[Cuenta] Usuario admin creado en Supabase para ${gmail}`);
   }
 
-  // c) Crear registro en la tabla negocios
+  // c) Crear negocio en Supabase
   const { error: negErr } = await supabaseAdmin.from('negocios').insert({
     nombre,
     apellido,
@@ -311,23 +220,16 @@ export async function createBusinessAccount(registroId: string): Promise<void> {
 
   console.log(`[Cuenta] Negocio creado en Supabase. slug=${slug}`);
 
-  // c) Marcar el registro pendiente como pagado
+  // d) Marcar registro pendiente como pagado
   await supabaseAdmin
     .from('registros_pendientes')
     .update({ estado: 'pagado' })
     .eq('id', registroId);
 
-  // d) Enviar email de bienvenida con credenciales
-  await sendBienvenida({
-    gmail,
-    nombre,
-    nombre_negocio,
-    url_cliente: urlCliente,
-    url_admin: urlAdmin,
-    password,
-  });
+  // e) Enviar email de bienvenida con credenciales
+  await sendBienvenida({ gmail, nombre, nombre_negocio, url_cliente: urlCliente, url_admin: urlAdmin, password });
 
-  console.log(`[Cuenta] ✅ Cuenta creada exitosamente para ${gmail} → ${slug}`);
+  console.log(`[Cuenta] Cuenta creada exitosamente para ${gmail} → ${slug}`);
 }
 
 export default router;

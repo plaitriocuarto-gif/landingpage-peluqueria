@@ -28,7 +28,8 @@ export function StaffManagement() {
     try {
       const data = await staffApi.listAll();
       setStaff(data);
-    } catch {
+    } catch (err) {
+      console.error('[StaffManagement] Error cargando empleados:', err);
       showToast('Error al cargar empleados', 'error');
     } finally {
       setLoading(false);

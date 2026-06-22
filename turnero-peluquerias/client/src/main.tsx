@@ -9,10 +9,7 @@ import { setClerkTokenProvider } from './api/client';
 import App from './App';
 import './index.css';
 
-// Mantiene el proveedor de tokens de Clerk sincronizado con el interceptor de axios.
-// Cuando el admin está logueado con Clerk, cada request usa su token fresco.
-// Cuando no hay sesión Clerk (staff/clientes con JWT), _getClerkToken queda en null
-// y el interceptor cae al token de localStorage.
+// Sincroniza Clerk con el interceptor de axios: admin usa token Clerk, staff/clientes caen a localStorage JWT.
 function ClerkTokenSync() {
   const { getToken, isSignedIn } = useAuth();
 
@@ -29,7 +26,7 @@ function ClerkTokenSync() {
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <ClerkProvider publishableKey={import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string}>
+    <ClerkProvider publishableKey={import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string} signInUrl="/" signUpUrl="/registro">
       <BrowserRouter>
         <ClerkTokenSync />
         <AuthProvider>

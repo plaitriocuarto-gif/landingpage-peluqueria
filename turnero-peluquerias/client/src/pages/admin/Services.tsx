@@ -26,7 +26,8 @@ export function Services() {
     try {
       const data = await servicesApi.listAll();
       setServices(data);
-    } catch {
+    } catch (err) {
+      console.error('[Services] Error cargando servicios:', err);
       showToast('Error al cargar servicios', 'error');
     } finally {
       setLoading(false);
