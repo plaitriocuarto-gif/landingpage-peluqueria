@@ -29,7 +29,7 @@ apiClient.interceptors.request.use(async (config) => {
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    if (error.response?.status === 401 && !_getClerkToken) {
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       window.location.href = '/login';

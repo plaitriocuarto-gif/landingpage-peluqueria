@@ -174,6 +174,7 @@ function ForgotPassword({ onBack }: { onBack: () => void }) {
 // onSuccess se llama cuando el login se completa — el padre decide a dónde navegar.
 export function LoginForm({ onSuccess }: { onSuccess: () => void }) {
   const { signIn } = useSignIn();
+  const clerk = useClerk();
   const [view, setView]               = useState<'login' | 'forgot'>('login');
   const [email, setEmail]             = useState('');
   const [password, setPassword]       = useState('');
@@ -194,9 +195,8 @@ export function LoginForm({ onSuccess }: { onSuccess: () => void }) {
         setError(clerkError({ errors: [createError] })); return;
       }
       if (signIn.status === 'complete') {
-        const { error: finalizeError } = await signIn.finalize();
-        if (!finalizeError) onSuccess();
-        else setError(clerkError({ errors: [finalizeError] }));
+        await clerk.setActive({ session: signIn.createdSessionId });
+        onSuccess();
       } else {
         setError('No se pudo completar el inicio de sesión. Intentá de nuevo.');
       }
@@ -207,12 +207,10 @@ export function LoginForm({ onSuccess }: { onSuccess: () => void }) {
   async function handleGoogle() {
     setError(''); setGoogleLoading(true);
     try {
-      const { error } = await signIn.sso({
+      await signIn.sso({
         strategy: 'oauth_google',
-        redirectUrl: `${window.location.origin}/admin`,
-        redirectCallbackUrl: `${window.location.origin}/sso-callback`,
+        redirectUrl: `${window.location.origin}/sso-callback`,
       });
-      if (error) { setError(clerkError({ errors: [error] })); setGoogleLoading(false); }
     } catch (err) { setError(clerkError(err)); setGoogleLoading(false); }
   }
 
