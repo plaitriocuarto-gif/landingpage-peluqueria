@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { useSignIn, useClerk } from '@clerk/react';
 
 export const inputCls = 'w-full bg-white border border-[#EAEAEA] rounded-lg px-4 py-2.5 text-[#111] placeholder-[#BDBDBD] focus:outline-none focus:ring-2 focus:ring-[#111]/20 focus:border-[#111]/30 transition-colors';
@@ -79,9 +79,7 @@ export function clerkError(err: unknown): string {
 }
 
 function ForgotPassword({ onBack }: { onBack: () => void }) {
-  const clerk = useClerk();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const signInRef = useRef<any>(null);
+  const { signIn } = useSignIn();
   const [step, setStep]               = useState<'email' | 'code' | 'done'>('email');
   const [email, setEmail]             = useState('');
   const [code, setCode]               = useState('');
@@ -95,10 +93,8 @@ function ForgotPassword({ onBack }: { onBack: () => void }) {
     e.preventDefault();
     setError(''); setLoading(true);
     try {
-      const si = clerk.client?.signIn;
-      if (!si) throw new Error('Clerk no disponible');
-      signInRef.current = si;
-      await si.create({ strategy: 'reset_password_email_code', identifier: email });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (signIn as any).create({ strategy: 'reset_password_email_code', identifier: email });
       setStep('code');
     } catch (err) { setError(clerkError(err)); }
     finally { setLoading(false); }
@@ -109,10 +105,10 @@ function ForgotPassword({ onBack }: { onBack: () => void }) {
     if (newPassword !== confirmPwd) { setError('Las contraseñas no coinciden.'); return; }
     setError(''); setLoading(true);
     try {
-      const si = signInRef.current ?? clerk.client?.signIn;
-      if (!si) throw new Error('Clerk no disponible');
-      await si.attemptFirstFactor({ strategy: 'reset_password_email_code', code });
-      await si.resetPassword({ password: newPassword, signOutOfOtherSessions: false });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (signIn as any).attemptFirstFactor({ strategy: 'reset_password_email_code', code });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (signIn as any).resetPassword({ password: newPassword, signOutOfOtherSessions: false });
       setStep('done');
     } catch (err) { setError(clerkError(err)); }
     finally { setLoading(false); }
