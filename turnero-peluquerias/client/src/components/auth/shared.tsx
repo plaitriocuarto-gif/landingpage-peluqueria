@@ -209,7 +209,7 @@ export function LoginForm({ onSuccess }: { onSuccess: () => void }) {
     try {
       await signIn.sso({
         strategy: 'oauth_google',
-        redirectUrl: `${window.location.origin}/sso-callback`,
+        redirectCallbackUrl: `${window.location.origin}/sso-callback`,
       });
     } catch (err) { setError(clerkError(err)); setGoogleLoading(false); }
   }
